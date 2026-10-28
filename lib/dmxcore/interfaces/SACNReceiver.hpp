@@ -11,8 +11,8 @@ class SACNReceiver
 public:
     // start listening for sacn
     virtual bool begin() = 0;
-    // serve the latest frame by value, 512 byte copy is microseconds, optimize later once main behavior is solved
-    virtual DMXFrame latest() = 0;
+    // return true if something new and mutate callers obj, otherwise false and dont mutate
+    virtual bool poll(DMXFrame &out) = 0;
 
     virtual ~SACNReceiver() = default;
 };

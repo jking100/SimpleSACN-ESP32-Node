@@ -5,7 +5,6 @@
 
 #include <esp_dmx.h>
 #include <Adafruit_NeoPixel.h>
-#include <ESPAsyncE131.h>
 // ----------------------------------------
 // mine
 #include "secrets/secrets.hpp"
@@ -15,12 +14,12 @@
 #include "SACNPacket.hpp"
 #include "interfaces/DMXSender.hpp"
 #include "interfaces/SACNReceiver.hpp"
-#include "FakeSACNReceiver.hpp"
+#include "interfaces/Fakes/FakeSACNReceiver.hpp"
 #include "MasterControlProgram.hpp"
 
 // device dependant
 #include "adapters/ESP_DMXSender.hpp"
-#include "adapters/AsyncE131_SACNReceiver.hpp"
+#include "adapters/WiFiUDP_SACNReceiver.hpp" //powered by my handrolled sacn
 // ----------------------------------------
 
 // ----------------------------------------
@@ -35,19 +34,23 @@ ESP_DMXSender dmxOut{txPin, uartBus};
 
 constexpr int UNIVERSE{1};
 constexpr int UNIVERSE_COUNT{1};
-AsyncE131_SACNReceiver sacnIn{UNIVERSE, UNIVERSE_COUNT, secrets::ssid, secrets::passphrase};
 
 FakeSACNReceiver fake_sacnIn{};
 
-MasterControlProgram MCP{&sacnIn, &dmxOut};
+// universe 1
+WiFiUDP_SACNReceiver wifi_sacn_recv{1, secrets::ssid, secrets::passphrase};
+
+// MasterControlProgram MCP{&sacnIn, &dmxOut};
+MasterControlProgram MCP{&wifi_sacn_recv, &dmxOut};
 // MasterControlProgram MCP{&fake_sacnIn, &dmxOut};
 
 TaskHandle_t blink13{}; // i can use this handle with other rtos functions to see whats up with the task, and i think also comm between tasks
-TaskHandle_t tickMCP{};
+TaskHandle_t mcpPushUART{};
 TaskHandle_t serialDiag{};
+TaskHandle_t mcpPollNetwork{};
 
 // up to 255, dont call me with 0
-uint16_t hzToMS(uint8_t hz)
+constexpr uint16_t hzToMS(uint8_t hz)
 {
     return hz ? 1000 / hz : 1000;
 }
@@ -74,22 +77,34 @@ void aTaskSerialDiag(void *pvParameters)
     for (;;)
     {
         printStackInfo(blink13);
-        printStackInfo(tickMCP);
+        printStackInfo(mcpPollNetwork);
         printStackInfo(serialDiag); // could use NULL to check this task instead of refrencing itself
-        Serial.printf("Free heap: %u bytes\n", esp_get_free_heap_size());
+        printStackInfo(mcpPushUART);
+        Serial.printf("------------------------------\n");
+        Serial.printf("         Free heap: %u bytes\n", esp_get_free_heap_size());
         Serial.printf("Min free heap ever: %u bytes\n", esp_get_minimum_free_heap_size());
         vTaskDelay(5000 / portTICK_PERIOD_MS);
     }
 }
 
-void aTaskTickMCP(void *pvParameters)
+void aTaskPollNetwork(void *pvParameters)
 {
     TickType_t xLastWakeTime{xTaskGetTickCount()};
     for (;;)
     {
-        MCP.tick();
+        MCP.netPoll();
 
-        xTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(hzToMS(40)));
+        xTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(hzToMS(88)));
+    }
+}
+void aTaskPushUART(void *pvParameters)
+{
+    TickType_t xLastWakeTime{xTaskGetTickCount()};
+    for (;;)
+    {
+        MCP.pushUart();
+
+        xTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(hzToMS(44)));
     }
 }
 
@@ -117,9 +132,10 @@ void setup()
     MCP.begin(); // start the master control program
 
     // minstacksize freertos is 828, overhead is 60 bytes (this port of freertos uses bytes not words)
-    xTaskCreate(aTaskTickMCP, "TickMCP", configMINIMAL_STACK_SIZE * 10, NULL, 2, &tickMCP);
+    xTaskCreate(aTaskPollNetwork, "mcpPollNetwork", configMINIMAL_STACK_SIZE * 10, NULL, 3, &mcpPollNetwork);
+    xTaskCreate(aTaskPushUART, "mcpPushUART", configMINIMAL_STACK_SIZE * 10, NULL, 4, &mcpPushUART);
     xTaskCreate(aTaskBlink13, "Blink13", configMINIMAL_STACK_SIZE * 2, NULL, 1, &blink13);
-    xTaskCreate(aTaskSerialDiag, "SerialDiag", configMINIMAL_STACK_SIZE * 4, NULL, 1, &serialDiag);
+    xTaskCreate(aTaskSerialDiag, "SerialDiag", configMINIMAL_STACK_SIZE * 4, NULL, 2, &serialDiag);
 }
 
 void loop() { vTaskDelete(NULL); }

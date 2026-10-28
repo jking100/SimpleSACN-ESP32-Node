@@ -1,8 +1,31 @@
 #pragma once
 
 #include <cstdint>
+#include <cstddef>
 
-#define SACN_PACKET_SIZE 638
+/*
+network (big endian) to host order
+*/
+namespace SACNByteOrder
+{
+    static_assert(__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__, "SACNByteOrder assumes a little endian host (esp32 + x86 both are)");
+
+    inline constexpr uint16_t ntoh16(uint16_t v) { return __builtin_bswap16(v); }
+    inline constexpr uint32_t ntoh32(uint32_t v) { return __builtin_bswap32(v); }
+}
+
+constexpr size_t SACN_PACKET_SIZE{638};
+constexpr size_t ACN_PACKET_ID_SIZE{12};
+
+// E1.17 - ACN Packet Identifier
+constexpr uint8_t ACNPacketIdentifier[12] = {0x41, 0x53, 0x43, 0x2d, 0x45, 0x31, 0x2e, 0x31, 0x37, 0x00, 0x00, 0x00};
+
+// E1.31 - appendix a
+constexpr uint32_t VECTOR_ROOT_E131_DATA{0x00000004};
+constexpr uint32_t VECTOR_E131_DATA_PACKET{0x00000002};
+
+constexpr uint16_t ACN_SDT_MULTICAST_PORT{5568};
+// E131_NETWORK_DATA_LOSS_TIMEOUT = 2.5 seconds
 
 /*
 a packet of sACN protocol data, contains 512 bytes of beautiful DMX channels
@@ -45,3 +68,9 @@ union sacnPacket
 };
 
 static_assert(sizeof(sacnPacket) == SACN_PACKET_SIZE, "sacnPacket is not 638 bytes, sad :(\n");
+
+/*
+notes: ANSI E1.31 - 2025 defines that sacn multicasting is done on 239.255.xxx.xxx, not inclusing 239.255.255.xxx, those top 256 addrs are reserved
+see table 9 - 10
+239.255.universeHiByte.universeLowByte aka 239.255.1.0 is universe 256 and .0.1 is universe 1; 65535 universe limit
+*/

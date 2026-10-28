@@ -1,5 +1,8 @@
 #pragma once
 
+#include <freertos/FreeRTOS.h>
+#include <freertos/queue.h>
+
 #include "interfaces/DMXSender.hpp"
 #include "interfaces/SACNReceiver.hpp"
 
@@ -10,7 +13,7 @@ class MasterControlProgram
 {
 public:
     MasterControlProgram(SACNReceiver *SACNReceiver, DMXSender *DMXSender)
-        : _SACNReceiver(SACNReceiver), _DMXSender(DMXSender) {};
+        : _DMXSender(DMXSender), _SACNReceiver(SACNReceiver) {};
 
     // END OF LINE.
     void begin()
@@ -19,12 +22,27 @@ public:
         _DMXSender->begin();
     };
 
-    void tick()
+    void netPoll()
     {
-        _DMXSender->send(_SACNReceiver->latest());
+        DMXFrame frame;
+        if (_SACNReceiver->poll(frame))
+        {
+            xQueueOverwrite(_frameMailbox, &frame);
+        }
+    }
+
+    void pushUart()
+    {
+        DMXFrame frame;
+        if (!xQueuePeek(_frameMailbox, &frame, 0))
+            return;
+
+        _DMXSender->send(frame);
     };
 
 private:
     DMXSender *_DMXSender{};
     SACNReceiver *_SACNReceiver{};
+
+    QueueHandle_t _frameMailbox{xQueueCreate(1, sizeof(DMXFrame))};
 };

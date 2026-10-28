@@ -24,7 +24,6 @@ public:
         if (_hasBeenInit)
             return;
 
-        // First, use the default DMX configuration...
         dmx_config_t config = DMX_CONFIG_DEFAULT;
 
         // ...declare the driver's DMX personalities...
@@ -32,7 +31,6 @@ public:
         dmx_personality_t personalities[] = {
             {1, "Default Personality"}};
 
-        // ...install the DMX driver...
         dmx_driver_install(_uartBus, &config, personalities, personality_count);
 
         // target the pins and uart periph
@@ -41,16 +39,15 @@ public:
         _hasBeenInit = true;
     }
 
-    bool send(DMXFrame dmxFrame) override
+    bool send(const DMXFrame &dmxFrame) override
     {
         if (!_hasBeenInit)
             return false;
 
-        // Write to the packet and send it.
-        dmx_write(_uartBus, &dmxFrame, DMX_PACKET_SIZE);
+        dmx_write(_uartBus, &dmxFrame.data, DMX_PACKET_SIZE);
         dmx_send(_uartBus);
 
-        // Block until the packet is finished sending.
+        // Blocking
         dmx_wait_sent(_uartBus, DMX_TIMEOUT_TICK);
 
         return true;

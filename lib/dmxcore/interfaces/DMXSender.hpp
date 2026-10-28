@@ -12,7 +12,7 @@ public:
     // init whatever is needed for send() to function
     virtual void begin() = 0;
     // push the frame to hardware
-    virtual bool send(DMXFrame) = 0;
+    virtual bool send(const DMXFrame &) = 0;
 
     virtual ~DMXSender() = default;
 };

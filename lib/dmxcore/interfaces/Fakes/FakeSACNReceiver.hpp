@@ -19,9 +19,10 @@ public:
         return true;
     }
 
-    DMXFrame latest() override
+    bool poll(DMXFrame &out) override
     {
-        return frame;
+        memcpy(&out, frame.data, 513);
+        return true;
     }
 
 private:
