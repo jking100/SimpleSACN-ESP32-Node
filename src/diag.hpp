@@ -46,7 +46,7 @@ namespace diag
     void begin(TaskHandle_t *handles, size_t len)
     {
         xTaskCreate(aTaskBlink13, "Blink13", configMINIMAL_STACK_SIZE * 2, NULL, 1, &blink13);
-        xTaskCreate(aTaskSerialRTOSDiag, "SerialDiag", configMINIMAL_STACK_SIZE * 4, NULL, 2, &serialRTOSDiag);
+        xTaskCreate(aTaskSerialRTOSDiag, "SerialDiag", configMINIMAL_STACK_SIZE * 6, NULL, 2, &serialRTOSDiag);
 
         for (int i{}; i < len && i < 10; i++)
         {
