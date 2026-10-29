@@ -1,10 +1,8 @@
 #pragma once
 
-#include <freertos/FreeRTOS.h>
-#include <freertos/queue.h>
-
 #include "interfaces/DMXSender.hpp"
 #include "interfaces/SACNReceiver.hpp"
+#include "interfaces/DMXMailbox.hpp"
 
 /*
 handles the wiring and overall behavioral interactions
@@ -12,14 +10,15 @@ handles the wiring and overall behavioral interactions
 class MasterControlProgram
 {
 public:
-    MasterControlProgram(SACNReceiver *SACNReceiver, DMXSender *DMXSender)
-        : _DMXSender(DMXSender), _SACNReceiver(SACNReceiver) {};
+    MasterControlProgram(SACNReceiver *SACNReceiver, DMXSender *DMXSender, DMXMailbox *DMXMailbox)
+        : _DMXSender(DMXSender), _SACNReceiver(SACNReceiver), _DMXMailbox(DMXMailbox) {};
 
     // END OF LINE.
     void begin()
     {
         _SACNReceiver->begin();
         _DMXSender->begin();
+        _DMXMailbox->begin();
     };
 
     void netPoll()
@@ -27,14 +26,14 @@ public:
         DMXFrame frame;
         if (_SACNReceiver->poll(frame))
         {
-            xQueueOverwrite(_frameMailbox, &frame);
+            _DMXMailbox->publish(frame);
         }
     }
 
     void pushUart()
     {
         DMXFrame frame;
-        if (!xQueuePeek(_frameMailbox, &frame, 0))
+        if (!_DMXMailbox->latest(frame))
             return;
 
         _DMXSender->send(frame);
@@ -43,6 +42,5 @@ public:
 private:
     DMXSender *_DMXSender{};
     SACNReceiver *_SACNReceiver{};
-
-    QueueHandle_t _frameMailbox{xQueueCreate(1, sizeof(DMXFrame))};
+    DMXMailbox *_DMXMailbox{};
 };

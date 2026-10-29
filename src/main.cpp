@@ -16,17 +16,16 @@
 #include "interfaces/SACNReceiver.hpp"
 #include "interfaces/Fakes/FakeSACNReceiver.hpp"
 #include "MasterControlProgram.hpp"
+#include "interfaces/DMXMailbox.hpp"
 
 // device dependant
 #include "adapters/ESP_DMXSender.hpp"
 #include "adapters/WiFiUDP_SACNReceiver.hpp" //powered by my handrolled sacn
+#include "adapters/FRTOSQueue_DMXMailbox.hpp"
 // ----------------------------------------
 
 // ----------------------------------------
 // GLOBAL OBJECTS
-constexpr int PIN{33};
-constexpr int NUMPIXELS{1};
-Adafruit_NeoPixel pixels(NUMPIXELS, PIN, NEO_GRB + NEO_KHZ800);
 
 constexpr int uartBus{1};
 constexpr int txPin{39};
@@ -34,15 +33,11 @@ ESP_DMXSender dmxOut{txPin, uartBus};
 
 constexpr int UNIVERSE{1};
 constexpr int UNIVERSE_COUNT{1};
+WiFiUDP_SACNReceiver wifi_sacn_recv{UNIVERSE, secrets::ssid, secrets::passphrase};
 
-FakeSACNReceiver fake_sacnIn{};
+FRTOSQueue_DMXMailbox frameMailbox{};
 
-// universe 1
-WiFiUDP_SACNReceiver wifi_sacn_recv{1, secrets::ssid, secrets::passphrase};
-
-// MasterControlProgram MCP{&sacnIn, &dmxOut};
-MasterControlProgram MCP{&wifi_sacn_recv, &dmxOut};
-// MasterControlProgram MCP{&fake_sacnIn, &dmxOut};
+MasterControlProgram MCP{&wifi_sacn_recv, &dmxOut, &frameMailbox};
 
 TaskHandle_t blink13{}; // i can use this handle with other rtos functions to see whats up with the task, and i think also comm between tasks
 TaskHandle_t mcpPushUART{};
