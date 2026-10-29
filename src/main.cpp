@@ -4,7 +4,6 @@
 #include <FreeRTOS.h>
 
 #include <esp_dmx.h>
-#include <Adafruit_NeoPixel.h>
 // ----------------------------------------
 // mine
 #include "secrets/secrets.hpp"
@@ -15,17 +14,14 @@
 #include "interfaces/DMXSender.hpp"
 #include "interfaces/SACNReceiver.hpp"
 #include "interfaces/Fakes/FakeSACNReceiver.hpp"
-#include "MasterControlProgram.hpp"
 #include "interfaces/DMXMailbox.hpp"
 
 // device dependant
 #include "adapters/ESP_DMXSender.hpp"
 #include "adapters/WiFiUDP_SACNReceiver.hpp" //powered by my handrolled sacn
 #include "adapters/FRTOSQueue_DMXMailbox.hpp"
+#include "diag.hpp"
 // ----------------------------------------
-
-// ----------------------------------------
-// GLOBAL OBJECTS
 
 constexpr int uartBus{1};
 constexpr int txPin{39};
@@ -37,49 +33,10 @@ WiFiUDP_SACNReceiver wifi_sacn_recv{UNIVERSE, secrets::ssid, secrets::passphrase
 
 FRTOSQueue_DMXMailbox frameMailbox{};
 
-// MasterControlProgram MCP{&wifi_sacn_recv, &dmxOut, &frameMailbox};
-
-TaskHandle_t blink13{}; // i can use this handle with other rtos functions to see whats up with the task, and i think also comm between tasks
-TaskHandle_t mcpPushUART{};
-TaskHandle_t serialDiag{};
-TaskHandle_t mcpPollNetwork{};
-
-// up to 255, dont call me with 0
+// 0 as argument results in 1hz
 constexpr uint16_t hzToMS(uint8_t hz)
 {
     return hz ? 1000 / hz : 1000;
-}
-
-// sanity blink the onboard red led
-void aTaskBlink13(void *pvParameters)
-{
-    for (;;)
-    {
-        gpio_set_level(GPIO_NUM_13, 1);
-        vTaskDelay(250 / portTICK_PERIOD_MS);
-        gpio_set_level(GPIO_NUM_13, 0);
-        vTaskDelay(750 / portTICK_PERIOD_MS);
-    }
-}
-
-void aTaskSerialDiag(void *pvParameters)
-{
-    auto printStackInfo = [](TaskHandle_t th)
-    {
-        Serial.printf("%s stack headroom: %4u bytes\n", pcTaskGetName(th), uxTaskGetStackHighWaterMark(th));
-    };
-
-    for (;;)
-    {
-        printStackInfo(blink13);
-        printStackInfo(mcpPollNetwork);
-        printStackInfo(serialDiag); // could use NULL to check this task instead of refrencing itself
-        printStackInfo(mcpPushUART);
-        Serial.printf("------------------------------\n");
-        Serial.printf("         Free heap: %u bytes\n", esp_get_free_heap_size());
-        Serial.printf("Min free heap ever: %u bytes\n", esp_get_minimum_free_heap_size());
-        vTaskDelay(5000 / portTICK_PERIOD_MS);
-    }
 }
 
 void aTaskPollNetwork(void *pvParameters)
@@ -135,11 +92,15 @@ void setup()
         frameMailbox.begin();
     }
 
+    TaskHandle_t pollNetwork{};
+    TaskHandle_t pushUART{};
+
     // minstacksize freertos is 828, overhead is 60 bytes (this port of freertos uses bytes not words)
-    xTaskCreate(aTaskPollNetwork, "mcpPollNetwork", configMINIMAL_STACK_SIZE * 7, NULL, 3, &mcpPollNetwork);
-    xTaskCreate(aTaskPushUART, "mcpPushUART", configMINIMAL_STACK_SIZE * 7, NULL, 4, &mcpPushUART);
-    xTaskCreate(aTaskBlink13, "Blink13", configMINIMAL_STACK_SIZE * 2, NULL, 1, &blink13);
-    xTaskCreate(aTaskSerialDiag, "SerialDiag", configMINIMAL_STACK_SIZE * 4, NULL, 2, &serialDiag);
+    xTaskCreate(aTaskPollNetwork, "PollNetwork", configMINIMAL_STACK_SIZE * 7, NULL, 3, &pollNetwork);
+    xTaskCreate(aTaskPushUART, "PushUART", configMINIMAL_STACK_SIZE * 7, NULL, 4, &pushUART);
+
+    TaskHandle_t handles[2]{pollNetwork, pushUART};
+    diag::begin(handles, 2);
 }
 
 void loop() { vTaskDelete(NULL); }
