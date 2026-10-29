@@ -1,6 +1,6 @@
 #pragma once
 
-#include "model/DMXFrame.hpp"
+#include "model/StampedDMXFrame.hpp"
 
 /*
 a SACNReceiver is responsible for listening to the network and being able to ALWAYS give a copy of the last packet received
@@ -12,7 +12,7 @@ public:
     // start listening for sacn
     virtual bool begin() = 0;
     // return true if something new and mutate callers obj, otherwise false and dont mutate
-    virtual bool poll(DMXFrame &out) = 0;
+    virtual bool poll(StampedDMXFrame &out) = 0;
 
     virtual ~SACNReceiver() = default;
 };

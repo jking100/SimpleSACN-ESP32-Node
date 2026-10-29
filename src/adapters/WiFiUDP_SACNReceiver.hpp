@@ -4,14 +4,11 @@
 #include "SACNPacket.hpp"
 #include "SACNParse.hpp"
 
-#include "model/DMXFrame.hpp"
+#include "model/StampedDMXFrame.hpp"
 #include "interfaces/SACNReceiver.hpp"
 
 /*
-SACNReceiver implemented using WiFiUDP from arduino core, using my handrolled sacn protocol implementation. very rough first pass.
-responsiveness isnt as bad as i would have thought. it is doing so much work to produce a packet when asked. not on its own thread or anything.
-with some optimization i bet this thing can get down to micro or nano time scales to move a dmx frame from network to uart
-this class is doing more than 1 job as well
+SACNReceiver implemented using WiFiUDP from arduino core, using my handrolled sacn protocol implementation
 */
 class WiFiUDP_SACNReceiver : public SACNReceiver
 {
@@ -60,7 +57,7 @@ public:
         }
     }
 
-    bool poll(DMXFrame &out) override
+    bool poll(StampedDMXFrame &out) override
     {
         int size{};
         bool foundPacket{};
@@ -78,7 +75,7 @@ public:
 
             foundPacket = true;
 
-            memcpy(out.data, packet.propertyValues, 513);
+            memcpy(out.frame.data, packet.propertyValues, sizeof(out.frame.data));
         }
 
         return foundPacket;

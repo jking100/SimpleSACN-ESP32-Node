@@ -5,7 +5,7 @@
 // esp dmx does not include this file itself(seems to assume what framework its on), transient include problem with the DMX_CONFIG_DEFUALT macro
 #include "esp_intr_alloc.h"
 
-#include "model/DMXFrame.hpp"
+#include "model/StampedDMXFrame.hpp"
 #include "interfaces/DMXSender.hpp"
 
 class ESP_DMXSender : public DMXSender
@@ -18,8 +18,10 @@ public:
     */
     ESP_DMXSender(int txPin, int uartBus) : _txPin(txPin), _uartBus(uartBus) {}
 
-    void begin() override
+    void begin(dataLossOption opt) override
     {
+        _dataLossOption = opt;
+
         // demo code someweisguy/esp_dmx
         if (_hasBeenInit)
             return;
@@ -39,12 +41,12 @@ public:
         _hasBeenInit = true;
     }
 
-    bool send(const DMXFrame &dmxFrame) override
+    bool send(const StampedDMXFrame &dmxFrame) override
     {
         if (!_hasBeenInit)
             return false;
 
-        dmx_write(_uartBus, &dmxFrame.data, DMX_PACKET_SIZE);
+        dmx_write(_uartBus, &dmxFrame.frame.data, DMX_PACKET_SIZE);
         dmx_send(_uartBus);
 
         // Blocking
@@ -56,6 +58,8 @@ public:
 private:
     int _txPin;   // where to write to
     int _uartBus; // which uart to use
+
+    dataLossOption _dataLossOption;
 
     bool _hasBeenInit{false};
 };

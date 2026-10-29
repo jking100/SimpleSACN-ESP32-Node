@@ -9,17 +9,17 @@
 #include "secrets/secrets.hpp"
 
 // pure
-#include "model/DMXFrame.hpp"
+#include "model/StampedDMXFrame.hpp"
 #include "SACNPacket.hpp"
 #include "interfaces/DMXSender.hpp"
 #include "interfaces/SACNReceiver.hpp"
 #include "interfaces/Fakes/FakeSACNReceiver.hpp"
-#include "interfaces/DMXMailbox.hpp"
+#include "interfaces/FrameMailbox.hpp"
 
 // device dependant
 #include "adapters/ESP_DMXSender.hpp"
 #include "adapters/WiFiUDP_SACNReceiver.hpp" //powered by my handrolled sacn
-#include "adapters/FRTOSQueue_DMXMailbox.hpp"
+#include "adapters/FRTOSQueue_FrameMailbox.hpp"
 #include "diag.hpp"
 // ----------------------------------------
 
@@ -31,7 +31,7 @@ constexpr int UNIVERSE{1};
 constexpr int UNIVERSE_COUNT{1};
 WiFiUDP_SACNReceiver wifi_sacn_recv{UNIVERSE, secrets::ssid, secrets::passphrase};
 
-FRTOSQueue_DMXMailbox frameMailbox{};
+FRTOSQueue_FrameMailbox frameMailbox{};
 
 // 0 as argument results in 1hz
 constexpr uint16_t hzToMS(uint8_t hz)
@@ -44,7 +44,7 @@ void aTaskPollNetwork(void *pvParameters)
     TickType_t xLastWakeTime{xTaskGetTickCount()};
     for (;;)
     {
-        DMXFrame frame;
+        StampedDMXFrame frame;
         if (wifi_sacn_recv.poll(frame))
             frameMailbox.publish(frame);
 
@@ -57,7 +57,7 @@ void aTaskPushUART(void *pvParameters)
     TickType_t xLastWakeTime{xTaskGetTickCount()};
     for (;;)
     {
-        DMXFrame frame;
+        StampedDMXFrame frame;
         if (frameMailbox.latest(frame))
             dmxOut.send(frame);
 
@@ -88,7 +88,7 @@ void setup()
 
     {
         wifi_sacn_recv.begin();
-        dmxOut.begin();
+        dmxOut.begin(DMXSender::dataLossOption::HOLD);
         frameMailbox.begin();
     }
 

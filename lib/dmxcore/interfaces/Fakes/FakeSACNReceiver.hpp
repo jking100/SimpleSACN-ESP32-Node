@@ -4,7 +4,7 @@
 
 #include "interfaces/SACNReceiver.hpp"
 
-#include "model/DMXFrame.hpp"
+#include "model/StampedDMXFrame.hpp"
 
 class FakeSACNReceiver : public SACNReceiver
 {
@@ -19,7 +19,7 @@ public:
         return true;
     }
 
-    bool poll(DMXFrame &out) override
+    bool poll(StampedDMXFrame &out) override
     {
         memcpy(&out, frame.data, 513);
         return true;
