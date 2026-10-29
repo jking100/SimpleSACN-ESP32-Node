@@ -37,7 +37,7 @@ WiFiUDP_SACNReceiver wifi_sacn_recv{UNIVERSE, secrets::ssid, secrets::passphrase
 
 FRTOSQueue_DMXMailbox frameMailbox{};
 
-MasterControlProgram MCP{&wifi_sacn_recv, &dmxOut, &frameMailbox};
+// MasterControlProgram MCP{&wifi_sacn_recv, &dmxOut, &frameMailbox};
 
 TaskHandle_t blink13{}; // i can use this handle with other rtos functions to see whats up with the task, and i think also comm between tasks
 TaskHandle_t mcpPushUART{};
@@ -87,17 +87,22 @@ void aTaskPollNetwork(void *pvParameters)
     TickType_t xLastWakeTime{xTaskGetTickCount()};
     for (;;)
     {
-        MCP.netPoll();
+        DMXFrame frame;
+        if (wifi_sacn_recv.poll(frame))
+            frameMailbox.publish(frame);
 
         xTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(hzToMS(88)));
     }
 }
+
 void aTaskPushUART(void *pvParameters)
 {
     TickType_t xLastWakeTime{xTaskGetTickCount()};
     for (;;)
     {
-        MCP.pushUart();
+        DMXFrame frame;
+        if (frameMailbox.latest(frame))
+            dmxOut.send(frame);
 
         xTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(hzToMS(44)));
     }
@@ -124,11 +129,15 @@ void setup()
         Serial.print("I crashed :(");
     }
 
-    MCP.begin(); // start the master control program
+    {
+        wifi_sacn_recv.begin();
+        dmxOut.begin();
+        frameMailbox.begin();
+    }
 
     // minstacksize freertos is 828, overhead is 60 bytes (this port of freertos uses bytes not words)
-    xTaskCreate(aTaskPollNetwork, "mcpPollNetwork", configMINIMAL_STACK_SIZE * 10, NULL, 3, &mcpPollNetwork);
-    xTaskCreate(aTaskPushUART, "mcpPushUART", configMINIMAL_STACK_SIZE * 10, NULL, 4, &mcpPushUART);
+    xTaskCreate(aTaskPollNetwork, "mcpPollNetwork", configMINIMAL_STACK_SIZE * 7, NULL, 3, &mcpPollNetwork);
+    xTaskCreate(aTaskPushUART, "mcpPushUART", configMINIMAL_STACK_SIZE * 7, NULL, 4, &mcpPushUART);
     xTaskCreate(aTaskBlink13, "Blink13", configMINIMAL_STACK_SIZE * 2, NULL, 1, &blink13);
     xTaskCreate(aTaskSerialDiag, "SerialDiag", configMINIMAL_STACK_SIZE * 4, NULL, 2, &serialDiag);
 }
