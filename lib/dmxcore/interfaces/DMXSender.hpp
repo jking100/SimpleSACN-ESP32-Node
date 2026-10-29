@@ -8,6 +8,7 @@ base class for a thing that can take a dmx frame and send it out to fixtures
 class DMXSender
 {
 public:
+    // todo: this needs to move out of here becuase deciding how to hold the frame in here is more complicated that this just pushing whatever it gets
     enum class dataLossOption
     {
         HOLD,
