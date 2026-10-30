@@ -10,11 +10,12 @@
 
 // pure
 #include "model/StampedDMXFrame.hpp"
-#include "SACNPacket.hpp"
 #include "interfaces/DMXSender.hpp"
 #include "interfaces/SACNReceiver.hpp"
 #include "interfaces/Fakes/FakeSACNReceiver.hpp"
 #include "interfaces/FrameMailbox.hpp"
+#include "SACNPacket.hpp"
+#include "SACNPolicy.hpp"
 
 // device dependant
 #include "adapters/ESP_DMXSender.hpp"
@@ -32,6 +33,10 @@ constexpr int UNIVERSE_COUNT{1};
 WiFiUDP_SACNReceiver wifi_sacn_recv{UNIVERSE, secrets::ssid, secrets::passphrase};
 
 FRTOSQueue_FrameMailbox frameMailbox{};
+
+SACNPolicy sendPolicy{true};
+
+
 
 // 0 as argument results in 1hz
 constexpr uint16_t hzToMS(uint8_t hz)
@@ -58,7 +63,7 @@ void aTaskPushUART(void *pvParameters)
     for (;;)
     {
         StampedDMXFrame frame;
-        if (frameMailbox.latest(frame))
+        if (frameMailbox.latest(frame) && sendPolicy.acceptable(frame))
             dmxOut.send(frame);
 
         xTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(hzToMS(44)));
