@@ -9,10 +9,25 @@ namespace constants
     // E1.31 appendix a
     constexpr uint32_t VECTOR_E131_DATA_PACKET{0x00000002};
     constexpr uint32_t VECTOR_ROOT_E131_DATA{0x00000004};
+    constexpr uint8_t VECTOR_DMP_SET_PROPERTY{0x02};
     constexpr uint32_t E131_NETWORK_DATA_LOSS_TIMEOUT_MS{2500};
     constexpr uint16_t ACN_SDT_MULTICAST_PORT{5568};
 
+    // required field values, E1.31 data packet
+    constexpr uint16_t PREAMBLE_SIZE{0x0010};
+    constexpr uint16_t POSTAMBLE_SIZE{0x0000};
     constexpr uint8_t ACNPacketIdentifier[12] = {0x41, 0x53, 0x43, 0x2d, 0x45, 0x31, 0x2e, 0x31, 0x37, 0x00, 0x00, 0x00};
+    constexpr uint8_t ADDRESS_TYPE_AND_DATA_TYPE{0xa1};
+    constexpr uint16_t FIRST_PROPERTY_ADDRESS{0x0000};
+    constexpr uint16_t ADDRESS_INCREMENT{0x0001};
+    constexpr uint16_t MAX_PROPERTY_VALUE_COUNT{513}; // start code + 512 channels
+    constexpr uint8_t NULL_START_CODE{0x00};          // DMX level data
+    constexpr uint16_t MIN_UNIVERSE{1};               // 0 and 64000+ are reserved
+    constexpr uint16_t MAX_UNIVERSE{63999};
+
+    // options bits
+    constexpr uint8_t OPTIONS_PREVIEW_DATA{0b10000000};      // bit 7
+    constexpr uint8_t OPTIONS_STREAM_TERMINATED{0b01000000}; // bit 6
 
     namespace offsets
     {
@@ -57,25 +72,24 @@ namespace util
         return ((d >> 24) | (d >> 8 & 0x0000FF00) | (d << 8 & 0x00FF0000) | (d << 24));
     }
 
-    // Read 2 bytes from a buffer in network order into little endian hardware order
+    // Read 2 bytes from a buffer in network order into host order
     //  @param buf buffer of bytes in network order
     //  @param offset starting offset, must be no more than sizeof(buf) - 2
-    constexpr uint16_t read16ntoh(const uint8_t *buf, uint16_t offset)
+    constexpr uint16_t read16ntoh(const uint8_t *buf, size_t offset)
     {
-        return (buf[offset] << 8) | (buf[offset + 1]);
+        return (uint16_t(buf[offset]) << 8) | (buf[offset + 1]);
     }
 
-    // Read 4 bytes from a buffer in network order into little endian hardware order
+    // Read 4 bytes from a buffer in network order into host order
     //  @param buf buffer of bytes in network order
     //  @param offset starting offset, must be no more than sizeof(buf) - 4
-    constexpr uint32_t read32ntoh(const uint8_t *buf, uint16_t offset)
+    constexpr uint32_t read32ntoh(const uint8_t *buf, size_t offset)
     {
-        return (buf[offset] << 24) | (buf[offset + 1] << 16) | (buf[offset + 2] << 8) | (buf[offset + 3]);
+        return (uint32_t(buf[offset]) << 24) | (uint32_t(buf[offset + 1]) << 16) | (uint32_t(buf[offset + 2]) << 8) | (buf[offset + 3]);
     }
 }
 
 // 4.1 E1.31 Data Packet
-// we care about: packetid, root vector, framing vector, property values count <= 513, buf size > 126 [ahve to have propertyvalue[0] at least]
 struct sacnData
 {
     // Root Layer                    // Field Description; Field Contents
@@ -105,9 +119,10 @@ struct sacnData
 };
 
 // attempts to parse a buffer into an e131 data packet;
-// will mutate the callers packet;
-// will immediately fail on: buffer too small, incorrect acnPacketId or
-// root/framing vector, too many property values
+// will mutate the callers packet, even on failure;
+// will immediately fail on: buffer too small, bad preamble/postamble, incorrect acnPacketId,
+// root/framing/dmp vector, universe outside 1-63999,
+// dmp address fields, property value count / len mismatch, non-zero start code
 // @return parse into data packet succesful
 inline bool parse(const uint8_t *buf, size_t len, sacnData &out)
 {
@@ -121,6 +136,8 @@ inline bool parse(const uint8_t *buf, size_t len, sacnData &out)
     // root
     out.preambleSize = read16ntoh(buf, off::preamble);
     out.postambleSize = read16ntoh(buf, off::postamble);
+    if (out.preambleSize != constants::PREAMBLE_SIZE || out.postambleSize != constants::POSTAMBLE_SIZE)
+        return false;
     memcpy(out.ACNPacketIdentifier, buf + off::acnId, 12);
     for (size_t i{}; i < 12; ++i)
     {
@@ -144,6 +161,9 @@ inline bool parse(const uint8_t *buf, size_t len, sacnData &out)
     out.sequenceNumber = buf[off::sequenceNumber];
     out.options = buf[off::options];
     out.universe = read16ntoh(buf, off::universe);
+    // todo: does this really count as a parse failure? i dont think so, should move to node logic area
+    if (out.universe < constants::MIN_UNIVERSE || out.universe > constants::MAX_UNIVERSE)
+        return false;
 
     // dmp
     out.dmpFlagsAndLength = read16ntoh(buf, off::dmpFlagsAndLength);
@@ -151,21 +171,95 @@ inline bool parse(const uint8_t *buf, size_t len, sacnData &out)
     out.addressTypeAndDataType = buf[off::addressTypeAndDataType];
     out.firstPropertyAddress = read16ntoh(buf, off::firstPropertyAddress);
     out.addressIncrement = read16ntoh(buf, off::addressIncrement);
+    if (out.dmpVector != constants::VECTOR_DMP_SET_PROPERTY || out.addressTypeAndDataType != constants::ADDRESS_TYPE_AND_DATA_TYPE ||
+        out.firstPropertyAddress != constants::FIRST_PROPERTY_ADDRESS || out.addressIncrement != constants::ADDRESS_INCREMENT)
+        return false;
     out.propertyValueCount = read16ntoh(buf, off::propertyValueCount);
-    if (out.propertyValueCount > 513 || len != off::startCode + out.propertyValueCount)
+    if (out.propertyValueCount > constants::MAX_PROPERTY_VALUE_COUNT || len != off::startCode + out.propertyValueCount)
+        return false;
+    if (buf[off::startCode] != constants::NULL_START_CODE)
         return false;
     memcpy(out.propertyValues, buf + off::startCode, out.propertyValueCount);
-    memset(out.propertyValues + out.propertyValueCount, 0, 513 - out.propertyValueCount); // zero out the rest
+    memset(out.propertyValues + out.propertyValueCount, 0, constants::MAX_PROPERTY_VALUE_COUNT - out.propertyValueCount); // zero out the rest
 
     return true;
 }
 
 constexpr bool isTerminated(const sacnData &p)
 {
-    return p.options & 0b01000000;
+    return p.options & constants::OPTIONS_STREAM_TERMINATED;
 }
 
 constexpr bool isPreview(const sacnData &p)
 {
-    return p.options & 0b10000000;
+    return p.options & constants::OPTIONS_PREVIEW_DATA;
 }
+
+// todo: sync this to covered test cases and implement
+enum class parseStatus
+{
+    FAILED_PREAMBLE,
+    FAILED_POSTAMBLE,
+    FAILED_ACN_ID,
+    FAILED_ROOT_VECTOR,
+    FAILED_FRAMING_VECTOR,
+    FAILED_CHANNEL_START_CODE,
+    INCORRECT_BUFFER_SIZE,
+    GOOD
+};
+
+inline const char *parseStatus_to_string(parseStatus s)
+{
+    switch (s)
+    {
+    case parseStatus::FAILED_PREAMBLE:
+        return "FAILED_PREAMBLE";
+    case parseStatus::FAILED_POSTAMBLE:
+        return "FAILED_POSTAMBLE";
+    case parseStatus::FAILED_ACN_ID:
+        return "FAILED_ACN_ID";
+    case parseStatus::FAILED_ROOT_VECTOR:
+        return "FAILED_ROOT_VECTOR";
+    case parseStatus::FAILED_FRAMING_VECTOR:
+        return "FAILED_FRAMING_VECTOR";
+    case parseStatus::FAILED_CHANNEL_START_CODE:
+        return "FAILED_CHANNEL_START_CODE";
+    case parseStatus::INCORRECT_BUFFER_SIZE:
+        return "INCORRECT_BUFFER_SIZE";
+    case parseStatus::GOOD:
+        return "GOOD";
+    }
+    return "Unknown";
+}
+
+class SequenceTracker
+{
+public:
+    bool accept(uint8_t seq)
+    {
+        if (!initialized)
+        {
+            initialized = true;
+            lastSequence = seq;
+            return true;
+        }
+
+        // E131 sequence validation
+        //  E1.31 6.7.2: out of order if 0 to 19 behind the last accepted packet. int8 cast handles 255 -> 0 wrap
+        int8_t diff = static_cast<int8_t>(seq - lastSequence);
+        if (diff <= 0 && diff > -20)
+        {
+            return false;
+        }
+
+        lastSequence = seq;
+        return true;
+    }
+
+private:
+    uint8_t lastSequence{};
+    bool initialized{};
+};
+
+// 2500ms or longer is defined as data loss by e131 6.7.1
+inline bool dataLoss(uint32_t rxMs, uint32_t nowMs) { return nowMs - rxMs >= 2500; }
