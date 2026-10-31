@@ -8,3 +8,5 @@
 src/secrets/
 
 miscfiles/ignore/
+
+*.exe
