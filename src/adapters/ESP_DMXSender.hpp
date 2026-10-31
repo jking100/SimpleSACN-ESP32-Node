@@ -18,10 +18,8 @@ public:
     */
     ESP_DMXSender(int txPin, int uartBus) : _txPin(txPin), _uartBus(uartBus) {}
 
-    void begin(dataLossOption opt) override
+    void begin() override
     {
-        _dataLossOption = opt;
-
         // demo code someweisguy/esp_dmx
         if (_hasBeenInit)
             return;
@@ -41,10 +39,12 @@ public:
         _hasBeenInit = true;
     }
 
-    bool send(const StampedDMXFrame &dmxFrame) override
+    bool send(StampedDMXFrame &dmxFrame) override
     {
         if (!_hasBeenInit)
             return false;
+
+        dmxFrame.UARTTxStartTime = millis();
 
         dmx_write(_uartBus, &dmxFrame.frame.data, DMX_PACKET_SIZE);
         dmx_send(_uartBus);
@@ -52,14 +52,14 @@ public:
         // Blocking
         dmx_wait_sent(_uartBus, DMX_TIMEOUT_TICK);
 
+        dmxFrame.UARTTxCompleteTime = millis();
+
         return true;
     }
 
 private:
     int _txPin;   // where to write to
     int _uartBus; // which uart to use
-
-    dataLossOption _dataLossOption;
 
     bool _hasBeenInit{false};
 };

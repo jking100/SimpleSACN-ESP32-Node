@@ -142,4 +142,12 @@ namespace SACNParser
         return validateStatus::GOOD;
     }
 
+    // 2500ms or longer is defined as data loss by e131 6.7.1
+    inline bool dataLoss(uint32_t rxMs, uint32_t nowMs) { return nowMs - rxMs >= 2500; }
+
+    // 6.2.6 options; bit 6 will be set on stream termination
+    inline bool isStreamTerminated(const sacnPacket &p) { return p.options >> 6; }
+
+    // 6.2.6 options; bit 7 will be set for preview frames which should not push to fixtures
+    inline bool isPreviewData(const sacnPacket &p) { return p.options >> 7; }
 }

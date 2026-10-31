@@ -15,7 +15,6 @@
 #include "interfaces/Fakes/FakeSACNReceiver.hpp"
 #include "interfaces/FrameMailbox.hpp"
 #include "SACNPacket.hpp"
-#include "SACNPolicy.hpp"
 
 // device dependant
 #include "adapters/ESP_DMXSender.hpp"
@@ -26,17 +25,16 @@
 
 constexpr int uartBus{1};
 constexpr int txPin{39};
+
+namespace config
+{
+    constexpr bool HOLD_ON_LOSS{true};
+    constexpr int UNIVERSE{1};
+}
+
 ESP_DMXSender dmxOut{txPin, uartBus};
-
-constexpr int UNIVERSE{1};
-constexpr int UNIVERSE_COUNT{1};
-WiFiUDP_SACNReceiver wifi_sacn_recv{UNIVERSE, secrets::ssid, secrets::passphrase};
-
+WiFiUDP_SACNReceiver wifi_sacn_recv{config::UNIVERSE, secrets::ssid, secrets::passphrase};
 FRTOSQueue_FrameMailbox frameMailbox{};
-
-SACNPolicy sendPolicy{true};
-
-
 
 // 0 as argument results in 1hz
 constexpr uint16_t hzToMS(uint8_t hz)
@@ -63,7 +61,9 @@ void aTaskPushUART(void *pvParameters)
     for (;;)
     {
         StampedDMXFrame frame;
-        if (frameMailbox.latest(frame) && sendPolicy.acceptable(frame))
+
+        // send frame if we have a frame, it is not data preview or terminated, it is not over 2500ms old without hold set
+        if (frameMailbox.latest(frame) && !(frame.previewData || frame.streamTerminated) && (config::HOLD_ON_LOSS || !SACNParser::dataLoss(frame.networkRxTime, millis())))
             dmxOut.send(frame);
 
         xTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(hzToMS(44)));
@@ -93,7 +93,7 @@ void setup()
 
     {
         wifi_sacn_recv.begin();
-        dmxOut.begin(DMXSender::dataLossOption::HOLD);
+        dmxOut.begin();
         frameMailbox.begin();
     }
 

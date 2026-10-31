@@ -76,6 +76,10 @@ public:
             foundPacket = true;
 
             memcpy(out.frame.data, packet.propertyValues, sizeof(out.frame.data));
+
+            out.networkRxTime = millis();
+            out.streamTerminated = SACNParser::isStreamTerminated(packet);
+            out.previewData = SACNParser::isPreviewData(packet);
         }
 
         return foundPacket;
