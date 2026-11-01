@@ -2,10 +2,12 @@
 #include <iostream>
 
 #include "../sacnData.hpp"
+#include "../sacnParse.hpp"
 
 // g++ -std=c++17 -Wall -Wextra tests/test_swaps.cpp -o test_swaps && ./test_swaps && rm test_swaps.exe
 
-using namespace util;
+using namespace sacnParse::util;
+using namespace sacnParse;
 
 static void test_swap16()
 {

@@ -1,11 +1,11 @@
 #include <cassert>
 #include <iostream>
-#include <chrono>
+#include <cstring>
 
-#include "../../KingSACN/sacnData.hpp"
-#include "../KingSACNNode.hpp"
+#include "../sacnData.hpp"
+#include "../sacnParse.hpp"
 
-// g++ -std=c++17 -Wall -Wextra tests/test_node.cpp -o test_node && ./test_node && rm test_node.exe
+// g++ -std=c++17 -Wall -Wextra tests/test_parse.cpp -o test_parse && ./test_parse && rm test_parse.exe
 
 namespace data
 {
@@ -33,135 +33,332 @@ void mutate(uint8_t *buf, size_t offset, int change = 1)
     buf[offset] += change;
 }
 
-// push good universe
-static void test_push_good_uni()
+void write16hton(uint8_t *buf, size_t offset, uint16_t value)
 {
-    KingSACNNode node(1, KingSACNNode::timeoutPolicy::HOLD);
-    assert(node.processE131Packet(data::sacnView::uni1_ch1_8_255_bytes, sizeof(data::sacnView::uni1_ch1_8_255_bytes), 0));
-
-    std::cout << "test_push_good_uni good\n";
+    buf[offset] = value >> 8;
+    buf[offset + 1] = value & 0xFF;
 }
 
-// push bad universe
-static void test_push_bad_uni()
+// copy the universe 1 capture into buf
+void reset(uint8_t *buf)
 {
-    KingSACNNode node(2, KingSACNNode::timeoutPolicy::HOLD);
-    assert(!node.processE131Packet(data::sacnView::uni1_ch1_8_255_bytes, sizeof(data::sacnView::uni1_ch1_8_255_bytes), 0));
-
-    std::cout << "test_push_bad_uni good\n";
+    memcpy(buf, data::sacnView::uni1_ch1_8_255_bytes, sizeof(data::sacnView::uni1_ch1_8_255_bytes));
 }
 
-// push a packet then pull it
-static void test_push_pull_good()
+using namespace sacnParse::util;
+
+static void test_parse_happy()
 {
-    KingSACNNode node(1, KingSACNNode::timeoutPolicy::HOLD);
-    const auto &pak = data::sacnView::uni1_ch1_8_255_bytes;
+    sacnData data;
 
-    node.processE131Packet(pak, sizeof(pak), 0);
+    assert(sacnParse::parse(data::sacnView::uni1_ch1_8_255_bytes, 638, data));
 
-    sacnData res, tmp;
-    assert(node.getLastPacket(&res));
+    assert(data.universe == 1);
+    assert(data.propertyValueCount == 513);
+    assert(data.propertyValues[0] == 0x00);
 
-    parse(pak, sizeof(pak), tmp);
-    assert(res.universe == tmp.universe);
-    assert(memcmp(res.propertyValues, tmp.propertyValues, 512) == 0);
-    assert(res.sequenceNumber == tmp.sequenceNumber);
+    for (size_t i{}; i < 8; ++i)
+    {
+        assert(data.propertyValues[i + 1] == 0xFF);
+    }
+    for (size_t i{9}; i < 513; ++i)
+    {
+        assert(data.propertyValues[i] == 0x00);
+    }
 
-    std::cout << "test_push_pull_good good\n";
+    assert(sacnParse::parse(data::sacnView::uniAF00_ch1_8_255_bytes, 638, data));
+
+    assert(data.universe == 0xAF00);
+
+    for (size_t i{}; i < 8; ++i)
+    {
+        assert(data.propertyValues[i + 1] == 0xFF);
+    }
+
+    std::cout << "test_parse_happy good\n";
 }
 
-// push bad then pull -> no changes
-static void test_push_pull_bad()
+static void test_parse_sad_packetid()
 {
-    KingSACNNode node(1, KingSACNNode::timeoutPolicy::HOLD);
-    const auto &pak1 = data::sacnView::uni1_ch1_8_255_bytes;
-    uint8_t pak2[sizeof(pak1)];
-    memcpy(pak2, pak1, sizeof(pak2));
+    sacnData data;
+    uint8_t tmp[sizeof(data::sacnView::uni1_ch1_8_255_bytes)];
 
-    mutate(pak2, constants::offsets::universe);
+    // acnid is 12 bytes
+    memcpy(tmp, data::sacnView::uni1_ch1_8_255_bytes, sizeof(data::sacnView::uni1_ch1_8_255_bytes));
+    mutate(tmp, constants::offsets::acnId + 2);
+    assert(!sacnParse::parse(tmp, sizeof(tmp), data));
 
-    node.processE131Packet(pak1, sizeof(pak1), 0);
-    node.processE131Packet(pak2, sizeof(pak2), 1000);
+    memcpy(tmp, data::sacnView::uni1_ch1_8_255_bytes, sizeof(data::sacnView::uni1_ch1_8_255_bytes));
+    mutate(tmp, constants::offsets::acnId + 11);
+    assert(!sacnParse::parse(tmp, sizeof(tmp), data));
 
-    sacnData res, tmp;
-    assert(node.getLastPacket(&res));
-
-    parse(pak1, sizeof(pak1), tmp);
-    assert(res.universe == tmp.universe);
-    assert(memcmp(res.propertyValues, tmp.propertyValues, 512) == 0);
-    assert(res.sequenceNumber == tmp.sequenceNumber);
-
-    std::cout << "test_push_pull_bad good\n";
+    std::cout << "test_parse_sad_packetid good\n";
 }
 
-// pull without pushing
-static void test_pull_never_push()
+static void test_parse_sad_rootvector()
 {
-    KingSACNNode node(1, KingSACNNode::timeoutPolicy::HOLD);
+    sacnData data;
+    uint8_t tmp[sizeof(data::sacnView::uni1_ch1_8_255_bytes)];
 
-    DMXFrame tmp;
-    sacnData tmp2;
+    // root vec is 4 bytes
+    memcpy(tmp, data::sacnView::uni1_ch1_8_255_bytes, sizeof(data::sacnView::uni1_ch1_8_255_bytes));
+    mutate(tmp, constants::offsets::rootVector);
+    assert(!sacnParse::parse(tmp, sizeof(tmp), data));
 
-    assert(!node.getLastFrame(&tmp, 0));
-    assert(!node.getLastPacket(&tmp2));
+    memcpy(tmp, data::sacnView::uni1_ch1_8_255_bytes, sizeof(data::sacnView::uni1_ch1_8_255_bytes));
+    mutate(tmp, constants::offsets::rootVector + 3);
+    assert(!sacnParse::parse(tmp, sizeof(tmp), data));
 
-    std::cout << "test_pull_never_push good\n";
+    std::cout << "test_parse_sad_rootvector good\n";
 }
 
-// push and pull 2 threads
-static void test_push_pull_threads()
+static void test_parse_sad_framevector()
 {
+    sacnData data;
+    uint8_t tmp[sizeof(data::sacnView::uni1_ch1_8_255_bytes)];
 
-    std::cout << "IMPLEMENT: test_push_pull_threads good\n";
+    // framing vec is 4 bytes
+    memcpy(tmp, data::sacnView::uni1_ch1_8_255_bytes, sizeof(data::sacnView::uni1_ch1_8_255_bytes));
+    mutate(tmp, constants::offsets::framingVector);
+    assert(!sacnParse::parse(tmp, sizeof(tmp), data));
+
+    memcpy(tmp, data::sacnView::uni1_ch1_8_255_bytes, sizeof(data::sacnView::uni1_ch1_8_255_bytes));
+    mutate(tmp, constants::offsets::framingVector + 3);
+    assert(!sacnParse::parse(tmp, sizeof(tmp), data));
+
+    std::cout << "test_parse_sad_framevector good\n";
 }
 
-// dataloss policy test
-static void test_dataloss_hold()
+static void test_parse_sad_too_many_propertyvalues()
 {
-    KingSACNNode node(1, KingSACNNode::timeoutPolicy::HOLD);
-    const auto &pak = data::sacnView::uni1_ch1_8_255_bytes;
+    sacnData data;
+    uint8_t tmp[sizeof(data::sacnView::uni1_ch1_8_255_bytes)];
 
-    node.processE131Packet(pak, sizeof(pak), 0);
+    // prop val count to 0xFF__
+    memcpy(tmp, data::sacnView::uni1_ch1_8_255_bytes, sizeof(data::sacnView::uni1_ch1_8_255_bytes));
+    memset(tmp + constants::offsets::propertyValueCount, 0xFF, 1);
+    assert(!sacnParse::parse(tmp, sizeof(tmp), data));
 
-    DMXFrame out;
-    assert(node.getLastFrame(&out, 2499));
-    assert(node.getLastFrame(&out, 2500));
-    assert(node.getLastFrame(&out, 0));
-
-    std::cout << "test_dataloss_hold good\n";
+    std::cout << "test_parse_sad_too_many_propertyvalues good\n";
 }
 
-// dataloss policy test
-static void test_dataloss_stop()
+static void test_parse_sad_buffertoosmall()
 {
-    KingSACNNode node(1, KingSACNNode::timeoutPolicy::STOP);
-    const auto &pak = data::sacnView::uni1_ch1_8_255_bytes;
+    sacnData data;
+    uint8_t tmp[sizeof(data::sacnView::uni1_ch1_8_255_bytes)];
 
-    node.processE131Packet(pak, sizeof(pak), 0);
+    memcpy(tmp, data::sacnView::uni1_ch1_8_255_bytes, sizeof(data::sacnView::uni1_ch1_8_255_bytes));
+    assert(!sacnParse::parse(tmp, constants::offsets::startCode, data));
+    assert(!sacnParse::parse(tmp, 0, data));
 
-    DMXFrame out;
-    assert(node.getLastFrame(&out, 2499));
-    assert(!node.getLastFrame(&out, 2500));
-    assert(node.getLastFrame(&out, 0));
-
-    std::cout << "test_dataloss_stop good\n";
+    std::cout << "test_parse_sad_buffertoosmall good\n";
 }
 
-// todo: test sequence number
+static void test_parse_short_packets()
+{
+    sacnData data;
+    uint8_t tmp[sizeof(data::sacnView::uni1_ch1_8_255_bytes)];
 
-// todo: test cid lock
+    // start code + 24 channels; fill data first so the zeroing of unsent slots is checked
+    reset(tmp);
+    write16hton(tmp, constants::offsets::propertyValueCount, 25);
+    size_t len = constants::offsets::startCode + 25;
+    memset(&data, 0xAA, sizeof(data));
+    assert(sacnParse::parse(tmp, len, data));
+    assert(data.propertyValueCount == 25);
+    for (size_t i{1}; i <= 8; ++i)
+    {
+        assert(data.propertyValues[i] == 0xFF);
+    }
+    for (size_t i{9}; i < 513; ++i)
+    {
+        assert(data.propertyValues[i] == 0x00);
+    }
+
+    // len and property value count disagree
+    assert(!sacnParse::parse(tmp, len + 1, data));
+    assert(!sacnParse::parse(tmp, len - 1, data));
+
+    // smallest valid packet: start code only
+    reset(tmp);
+    write16hton(tmp, constants::offsets::propertyValueCount, 1);
+    assert(sacnParse::parse(tmp, constants::offsets::startCode + 1, data));
+    assert(data.propertyValueCount == 1);
+
+    std::cout << "test_parse_short_packets good\n";
+}
+
+static void test_parse_propertyvalue_count_boundary()
+{
+    sacnData data;
+    uint8_t tmp[sizeof(data::sacnView::uni1_ch1_8_255_bytes) + 1]{}; // room for 514 slots
+
+    // 513 passes (happy path), 514 fails even when len agrees with it
+    reset(tmp);
+    assert(sacnParse::parse(tmp, constants::offsets::startCode + 513, data));
+    write16hton(tmp, constants::offsets::propertyValueCount, 514);
+    assert(!sacnParse::parse(tmp, constants::offsets::startCode + 514, data));
+
+    std::cout << "test_parse_propertyvalue_count_boundary good\n";
+}
+
+static void test_parse_sad_preamble()
+{
+    sacnData data;
+    uint8_t tmp[sizeof(data::sacnView::uni1_ch1_8_255_bytes)];
+
+    // preamble must be 0x0010
+    reset(tmp);
+    mutate(tmp, constants::offsets::preamble + 1);
+    assert(!sacnParse::parse(tmp, sizeof(tmp), data));
+
+    std::cout << "test_parse_sad_preamble good\n";
+}
+
+static void test_parse_sad_postamble()
+{
+    sacnData data;
+    uint8_t tmp[sizeof(data::sacnView::uni1_ch1_8_255_bytes)];
+
+    // postamble must be 0x0000
+    reset(tmp);
+    mutate(tmp, constants::offsets::postamble + 1);
+    assert(!sacnParse::parse(tmp, sizeof(tmp), data));
+
+    std::cout << "test_parse_sad_postamble good\n";
+}
+
+static void test_parse_sad_dmpvector()
+{
+    sacnData data;
+    uint8_t tmp[sizeof(data::sacnView::uni1_ch1_8_255_bytes)];
+
+    // dmp vector is 1 byte, must be 0x02
+    reset(tmp);
+    mutate(tmp, constants::offsets::dmpVector);
+    assert(!sacnParse::parse(tmp, sizeof(tmp), data));
+
+    std::cout << "test_parse_sad_dmpvector good\n";
+}
+
+static void test_parse_sad_addresstype()
+{
+    sacnData data;
+    uint8_t tmp[sizeof(data::sacnView::uni1_ch1_8_255_bytes)];
+
+    // address type and data type must be 0xa1
+    reset(tmp);
+    mutate(tmp, constants::offsets::addressTypeAndDataType);
+    assert(!sacnParse::parse(tmp, sizeof(tmp), data));
+
+    std::cout << "test_parse_sad_addresstype good\n";
+}
+
+static void test_parse_sad_firstpropertyaddress()
+{
+    sacnData data;
+    uint8_t tmp[sizeof(data::sacnView::uni1_ch1_8_255_bytes)];
+
+    // first property address must be 0x0000
+    reset(tmp);
+    mutate(tmp, constants::offsets::firstPropertyAddress + 1);
+    assert(!sacnParse::parse(tmp, sizeof(tmp), data));
+
+    std::cout << "test_parse_sad_firstpropertyaddress good\n";
+}
+
+static void test_parse_sad_addressincrement()
+{
+    sacnData data;
+    uint8_t tmp[sizeof(data::sacnView::uni1_ch1_8_255_bytes)];
+
+    // address increment must be 0x0001
+    reset(tmp);
+    mutate(tmp, constants::offsets::addressIncrement + 1);
+    assert(!sacnParse::parse(tmp, sizeof(tmp), data));
+
+    std::cout << "test_parse_sad_addressincrement good\n";
+}
+
+static void test_parse_sad_startcode()
+{
+    sacnData data;
+    uint8_t tmp[sizeof(data::sacnView::uni1_ch1_8_255_bytes)];
+
+    // start code must be 0x00
+    reset(tmp);
+    tmp[constants::offsets::startCode] = 0x01;
+    assert(!sacnParse::parse(tmp, sizeof(tmp), data));
+
+    std::cout << "test_parse_sad_startcode good\n";
+}
+
+static void test_parse_sad_universe()
+{
+    sacnData data;
+    uint8_t tmp[sizeof(data::sacnView::uni1_ch1_8_255_bytes)];
+
+    // universe range is 1 - 63999
+    reset(tmp);
+    write16hton(tmp, constants::offsets::universe, 0);
+    assert(!sacnParse::parse(tmp, sizeof(tmp), data));
+
+    write16hton(tmp, constants::offsets::universe, 64000);
+    assert(!sacnParse::parse(tmp, sizeof(tmp), data));
+
+    write16hton(tmp, constants::offsets::universe, 63999);
+    assert(sacnParse::parse(tmp, sizeof(tmp), data));
+
+    std::cout << "test_parse_sad_universe good\n";
+}
+
+static void test_options()
+{
+    sacnData p{};
+
+    p.options = 0b01000000;
+    assert(sacnParse::isTerminated(p) && !sacnParse::isPreview(p));
+    p.options = 0b10000000;
+    assert(sacnParse::isPreview(p) && !sacnParse::isTerminated(p));
+    p.options = 0b00000000;
+    assert(!sacnParse::isPreview(p) && !sacnParse::isTerminated(p));
+
+    // through parse: terminate and preview packets still parse, the caller decides what to do with them
+    sacnData data;
+    uint8_t tmp[sizeof(data::sacnView::uni1_ch1_8_255_bytes)];
+
+    reset(tmp);
+    tmp[constants::offsets::options] = 0x40;
+    assert(sacnParse::parse(tmp, sizeof(tmp), data));
+    assert(sacnParse::isTerminated(data) && !sacnParse::isPreview(data));
+
+    reset(tmp);
+    tmp[constants::offsets::options] = 0x80;
+    assert(sacnParse::parse(tmp, sizeof(tmp), data));
+    assert(sacnParse::isPreview(data) && !sacnParse::isTerminated(data));
+
+    std::cout << "test_options good\n";
+}
 
 int main()
 {
-    test_push_good_uni();
-    test_push_bad_uni();
-    test_push_pull_good();
-    test_push_pull_bad();
-    test_pull_never_push();
-    test_push_pull_threads();
-    test_dataloss_hold();
-    test_dataloss_stop();
-
-    std::cout << "All tests passed" << std::endl;
+    test_parse_happy();
+    test_parse_sad_packetid();
+    test_parse_sad_rootvector();
+    test_parse_sad_framevector();
+    test_parse_sad_too_many_propertyvalues();
+    test_parse_sad_buffertoosmall();
+    test_parse_short_packets();
+    test_parse_propertyvalue_count_boundary();
+    test_parse_sad_preamble();
+    test_parse_sad_postamble();
+    test_parse_sad_dmpvector();
+    test_parse_sad_addresstype();
+    test_parse_sad_firstpropertyaddress();
+    test_parse_sad_addressincrement();
+    test_parse_sad_startcode();
+    test_parse_sad_universe();
+    test_options();
+    std::cout << "all passed\n";
     return 0;
 }
