@@ -58,6 +58,7 @@ namespace constants
 }
 
 // 4.1 E1.31 Data Packet
+// todo: can i move logic for determining if the packet is well formed (acn,vectors,constants above?) out of the parser into this
 struct sacnData
 {
     // Root Layer                    // Field Description; Field Contents
@@ -84,4 +85,7 @@ struct sacnData
     uint16_t addressIncrement;      // Indicates each property is 1 octet; 0x0001
     uint16_t propertyValueCount;    // Indicates 1+ the number of slots in packet; 0x0001 -- 0x0201
     uint8_t propertyValues[513];    // DMX512-A START Code + data; START Code + Data (slot 0 is START Code, slots 1-512 are channels)
+
+    constexpr bool isTerminated() const { return options & constants::OPTIONS_STREAM_TERMINATED; }
+    constexpr bool isPreview() const { return options & constants::OPTIONS_PREVIEW_DATA; }
 };

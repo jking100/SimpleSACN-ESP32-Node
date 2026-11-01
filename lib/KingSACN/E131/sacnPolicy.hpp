@@ -2,7 +2,6 @@
 #include <cstdint>
 
 #include "sacnData.hpp"
-#include "sacnParse.hpp"
 
 namespace sacnPolicy
 {
@@ -27,9 +26,9 @@ namespace sacnPolicy
     {
         // todo: CID
         // todo: terminated should cut the output of dmx frames
-        if (sacnParse::isTerminated(p))
+        if (p.isTerminated())
             return false;
-        if (sacnParse::isPreview(p))
+        if (p.isPreview())
             return false;
 
         if (p.universe != universe)

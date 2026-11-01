@@ -80,6 +80,12 @@ inline bool singleUniverseNode::processE131Packet(const uint8_t *buf, size_t len
     if (getState() == state::STREAMING && sacnPolicy::dataLoss(timeNow, _status.lastPacketTimeMs))
         _status.nodeState = state::LOST;
 
+    if (tmp.isTerminated())
+    {
+        _status.nodeState = state::WAITING;
+        return false;
+    }
+
     // cid lock on to last good packet
     if (getState() == state::STREAMING && memcmp(tmp.CID, _status.lastPacket.CID, sizeof(tmp.CID)) != 0)
         return false;

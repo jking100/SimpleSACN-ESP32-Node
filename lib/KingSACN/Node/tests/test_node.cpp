@@ -256,6 +256,34 @@ static void test_cid_takeover_no_pull()
     std::cout << "test_cid_takeover_no_pull good\n";
 }
 
+// terminate drops the stream back to waiting, then any source can start a new one
+static void test_terminate()
+{
+    for (auto cfg : {u1_h, u1_s})
+    {
+        singleUniverseNode node(cfg);
+        uint8_t pak[sizeof(data::sacnView::uni1_ch1_8_255_bytes)];
+        memcpy(pak, data::sacnView::uni1_ch1_8_255_bytes, sizeof(pak));
+        node.processE131Packet(pak, sizeof(pak), 0);
+
+        mutate(pak, constants::offsets::sequenceNumber);
+        pak[constants::offsets::options] = constants::OPTIONS_STREAM_TERMINATED;
+        assert(!node.processE131Packet(pak, sizeof(pak), 100));
+        assert(node.getState() == state::WAITING);
+
+        DMXFrame out;
+        assert(!node.getLastFrame(&out, 100));
+
+        // new source, old sequence number
+        mutate(pak, constants::offsets::cid);
+        pak[constants::offsets::options] = 0;
+        assert(node.processE131Packet(pak, sizeof(pak), 200));
+        assert(node.getState() == state::STREAMING);
+    }
+
+    std::cout << "test_terminate good\n";
+}
+
 static void test_bad_bytes()
 {
     singleUniverseNode node(u1_h);
@@ -284,6 +312,7 @@ int main()
     test_cid_lock();
     test_cid_takeover();
     test_cid_takeover_no_pull();
+    test_terminate();
     test_bad_bytes();
 
     std::cout << "All tests passed" << std::endl;

@@ -107,16 +107,6 @@ namespace sacnParse
         return true;
     }
 
-    constexpr bool isTerminated(const sacnData &p)
-    {
-        return p.options & constants::OPTIONS_STREAM_TERMINATED;
-    }
-
-    constexpr bool isPreview(const sacnData &p)
-    {
-        return p.options & constants::OPTIONS_PREVIEW_DATA;
-    }
-
     // todo: sync this to covered test cases and implement
     enum class parseStatus
     {

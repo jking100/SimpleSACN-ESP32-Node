@@ -317,11 +317,11 @@ static void test_options()
     sacnData p{};
 
     p.options = 0b01000000;
-    assert(sacnParse::isTerminated(p) && !sacnParse::isPreview(p));
+    assert(p.isTerminated() && !p.isPreview());
     p.options = 0b10000000;
-    assert(sacnParse::isPreview(p) && !sacnParse::isTerminated(p));
+    assert(p.isPreview() && !p.isTerminated());
     p.options = 0b00000000;
-    assert(!sacnParse::isPreview(p) && !sacnParse::isTerminated(p));
+    assert(!p.isPreview() && !p.isTerminated());
 
     // through parse: terminate and preview packets still parse, the caller decides what to do with them
     sacnData data;
@@ -330,12 +330,12 @@ static void test_options()
     reset(tmp);
     tmp[constants::offsets::options] = 0x40;
     assert(sacnParse::parse(tmp, sizeof(tmp), data));
-    assert(sacnParse::isTerminated(data) && !sacnParse::isPreview(data));
+    assert(data.isTerminated() && !data.isPreview());
 
     reset(tmp);
     tmp[constants::offsets::options] = 0x80;
     assert(sacnParse::parse(tmp, sizeof(tmp), data));
-    assert(sacnParse::isPreview(data) && !sacnParse::isTerminated(data));
+    assert(data.isPreview() && !data.isTerminated());
 
     std::cout << "test_options good\n";
 }
