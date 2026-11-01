@@ -145,7 +145,129 @@ static void test_sequence_bad()
     std::cout << "test_sequence_bad good\n";
 }
 
-// todo: test cid lock
+using state = singleUniverseNode::state;
+
+// frame holds slots 1-512, start code skipped
+static void test_frame_contents()
+{
+    singleUniverseNode node(u1_h);
+    const auto &pak = data::sacnView::uni1_ch1_8_255_bytes;
+    node.processE131Packet(pak, sizeof(pak), 0);
+
+    DMXFrame out;
+    assert(node.getLastFrame(&out, 0));
+    for (int i = 0; i < 8; i++)
+        assert(out.data[i] == 255);
+    for (int i = 8; i < 512; i++)
+        assert(out.data[i] == 0);
+
+    std::cout << "test_frame_contents good\n";
+}
+
+static void test_state_transitions()
+{
+    singleUniverseNode node(u1_h);
+    const auto &pak = data::sacnView::uni1_ch1_8_255_bytes;
+    assert(node.getState() == state::WAITING);
+
+    node.processE131Packet(pak, sizeof(pak), 0);
+    assert(node.getState() == state::STREAMING);
+
+    DMXFrame out;
+    node.getLastFrame(&out, 2499);
+    assert(node.getState() == state::STREAMING);
+    node.getLastFrame(&out, 2500);
+    assert(node.getState() == state::LOST);
+
+    std::cout << "test_state_transitions good\n";
+}
+
+static void test_dataloss_hold()
+{
+    singleUniverseNode node(u1_h);
+    const auto &pak = data::sacnView::uni1_ch1_8_255_bytes;
+    node.processE131Packet(pak, sizeof(pak), 0);
+
+    DMXFrame out;
+    assert(node.getLastFrame(&out, 2500));
+    assert(node.getState() == state::LOST);
+    assert(out.data[0] == 255);
+
+    std::cout << "test_dataloss_hold good\n";
+}
+
+// while streaming, other sources are ignored and the frame is kept
+static void test_cid_lock()
+{
+    singleUniverseNode node(u1_h);
+    uint8_t pak[sizeof(data::sacnView::uni1_ch1_8_255_bytes)];
+    memcpy(pak, data::sacnView::uni1_ch1_8_255_bytes, sizeof(pak));
+    node.processE131Packet(pak, sizeof(pak), 0);
+
+    mutate(pak, constants::offsets::cid);
+    mutate(pak, constants::offsets::sequenceNumber);
+    pak[constants::offsets::startCode + 1] = 7;
+    assert(!node.processE131Packet(pak, sizeof(pak), 100));
+
+    DMXFrame out;
+    assert(node.getLastFrame(&out, 100));
+    assert(out.data[0] == 255);
+
+    std::cout << "test_cid_lock good\n";
+}
+
+// after loss, a new source takes over from any sequence number
+static void test_cid_takeover()
+{
+    singleUniverseNode node(u1_h);
+    uint8_t pak[sizeof(data::sacnView::uni1_ch1_8_255_bytes)];
+    memcpy(pak, data::sacnView::uni1_ch1_8_255_bytes, sizeof(pak));
+    node.processE131Packet(pak, sizeof(pak), 0);
+
+    DMXFrame out;
+    node.getLastFrame(&out, 2500);
+    assert(node.getState() == state::LOST);
+
+    mutate(pak, constants::offsets::cid);
+    pak[constants::offsets::startCode + 1] = 7;
+    // same sequence number as the old source, would be out of order if not reset
+    assert(node.processE131Packet(pak, sizeof(pak), 3000));
+    assert(node.getState() == state::STREAMING);
+
+    assert(node.getLastFrame(&out, 3000));
+    assert(out.data[0] == 7);
+
+    std::cout << "test_cid_takeover good\n";
+}
+
+// loss is detected on input too, without a getLastFrame call
+static void test_cid_takeover_no_pull()
+{
+    singleUniverseNode node(u1_h);
+    uint8_t pak[sizeof(data::sacnView::uni1_ch1_8_255_bytes)];
+    memcpy(pak, data::sacnView::uni1_ch1_8_255_bytes, sizeof(pak));
+    node.processE131Packet(pak, sizeof(pak), 0);
+
+    mutate(pak, constants::offsets::cid);
+    assert(!node.processE131Packet(pak, sizeof(pak), 2499));
+    assert(node.processE131Packet(pak, sizeof(pak), 2500));
+    assert(node.getState() == state::STREAMING);
+
+    std::cout << "test_cid_takeover_no_pull good\n";
+}
+
+static void test_bad_bytes()
+{
+    singleUniverseNode node(u1_h);
+    uint8_t pak[sizeof(data::sacnView::uni1_ch1_8_255_bytes)];
+    memcpy(pak, data::sacnView::uni1_ch1_8_255_bytes, sizeof(pak));
+    mutate(pak, constants::offsets::rootVector);
+
+    assert(!node.processE131Packet(pak, sizeof(pak), 0));
+    assert(node.getState() == state::WAITING);
+
+    std::cout << "test_bad_bytes good\n";
+}
 
 int main()
 {
@@ -156,6 +278,13 @@ int main()
     test_push_pull_threads();
     test_dataloss_stop();
     test_sequence_bad();
+    test_frame_contents();
+    test_state_transitions();
+    test_dataloss_hold();
+    test_cid_lock();
+    test_cid_takeover();
+    test_cid_takeover_no_pull();
+    test_bad_bytes();
 
     std::cout << "All tests passed" << std::endl;
     return 0;

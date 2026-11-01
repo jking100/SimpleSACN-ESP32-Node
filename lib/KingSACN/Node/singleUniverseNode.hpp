@@ -14,11 +14,8 @@
 // given raw bytes, this node will process and serve frames of dmx data according to sacn operation policy
 // its input and output functions are thread safe, output/imput may wait on a copy of sacnData + accoutrements
 //
-// ideas: state machine to move thru listening -> dataloss (state mentioned in spec) -> listening -> configuring -> listening ... ???
-// how do i log statistics of function (timing/fps/...)??
 //
 // seems liks a lot of concerns in this class
-// --- applying sacn policy to make decisions (dataloss, universe, sequence)
 // worrying about how to serve the data safely for two threads
 // maybe this could be some sort of thinner state machine that just coordinates between the sacn policy and its current stage plus some sort of storage mechanism
 class singleUniverseNode
@@ -26,11 +23,9 @@ class singleUniverseNode
 public:
     enum class state
     {
-        WAITING,
-        TERMINATED,
-        DATALOSS,
-        STOPPED,
-        STREAMING
+        WAITING,   // waiting for a cid to lock onto
+        STREAMING, // locked onto a CID and not in data loss
+        LOST,      // entered after detecting data loss, stream lock released (CID), will accept from any sender to move back to streaming, output based on timeoutpolicy
     };
 
     struct nodeConfig
@@ -47,7 +42,11 @@ public:
         DMXFrame lastFrame;
     };
 
-    singleUniverseNode(nodeConfig c);
+    singleUniverseNode(nodeConfig c)
+        : _config(c)
+    {
+        _status.nodeState = state::WAITING;
+    }
 
     // input
     bool processE131Packet(const uint8_t *buf, size_t len, uint32_t timeNow);
@@ -58,9 +57,10 @@ public:
     // return the last valid frame
     bool getLastFrame(DMXFrame *out, uint32_t timeNow);
 
-    // timing, latency etc
-    // todo: does this even belong here?
-    void getStatistics();
+    state getState() const
+    {
+        return _status.nodeState;
+    }
 
 private:
     nodeConfig _config{};
@@ -68,11 +68,6 @@ private:
 
     std::mutex guard{};
 };
-
-inline singleUniverseNode::singleUniverseNode(nodeConfig c)
-    : _config(c)
-{
-}
 
 inline bool singleUniverseNode::processE131Packet(const uint8_t *buf, size_t len, uint32_t timeNow)
 {
@@ -82,14 +77,23 @@ inline bool singleUniverseNode::processE131Packet(const uint8_t *buf, size_t len
 
     std::lock_guard<std::mutex> lock(guard);
 
-    if (!sacnPolicy::displayablePacket(tmp, _config.universe, _status.lastPacket.sequenceNumber, (_status.nodeState == state::STREAMING)))
+    if (getState() == state::STREAMING && sacnPolicy::dataLoss(timeNow, _status.lastPacketTimeMs))
+        _status.nodeState = state::LOST;
+
+    // cid lock on to last good packet
+    if (getState() == state::STREAMING && memcmp(tmp.CID, _status.lastPacket.CID, sizeof(tmp.CID)) != 0)
+        return false;
+
+    if (!sacnPolicy::displayablePacket(tmp, _config.universe, _status.lastPacket.sequenceNumber, (getState() == state::STREAMING)))
         return false;
 
     _status.lastPacket = tmp;
     _status.lastPacketTimeMs = timeNow;
+
+    // todo this is sacn knowledge the +1, and the 512 less so but still
     memcpy(_status.lastFrame.data, tmp.propertyValues + 1, 512);
 
-    if ((_status.nodeState != state::STREAMING))
+    if (getState() == state::LOST || getState() == state::WAITING)
         _status.nodeState = state::STREAMING;
 
     return true;
@@ -99,7 +103,7 @@ inline bool singleUniverseNode::getLastPacket(sacnData *out)
 {
     std::lock_guard<std::mutex> lock(guard);
 
-    if (_status.nodeState != state::STREAMING)
+    if (getState() == state::WAITING)
         return false;
 
     *out = _status.lastPacket;
@@ -111,17 +115,17 @@ inline bool singleUniverseNode::getLastFrame(DMXFrame *out, uint32_t timeNow)
 {
     std::lock_guard<std::mutex> lock(guard);
 
-    if (_status.nodeState != state::STREAMING)
+    if (getState() == state::WAITING)
         return false;
+
+    // if we check last and its too old we can move into lost here
+
+    if (sacnPolicy::dataLoss(timeNow, _status.lastPacketTimeMs))
+        _status.nodeState = state::LOST;
 
     if (!sacnPolicy::shouldServeFrames(_config.timeoutPolicy, timeNow, _status.lastPacketTimeMs))
         return false;
 
     *out = _status.lastFrame;
     return true;
-}
-
-inline void singleUniverseNode::getStatistics()
-{
-    return;
 }
