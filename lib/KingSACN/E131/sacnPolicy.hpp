@@ -21,23 +21,19 @@ namespace sacnPolicy
         return (diff <= 0 && diff > -20);
     }
 
-    // displayable packets are well formed e131 data packets without stream terminated or preview flags, with correct universe and sequence
-    inline bool displayablePacket(const sacnData &p, uint16_t universe, uint8_t lastSequence, bool alrStarted)
+    inline bool relevantPacket(const sacnData &p, uint16_t universe, uint8_t lastSequence, bool alrStarted)
     {
-        // todo: CID
-        // todo: terminated should cut the output of dmx frames
-        if (p.isTerminated())
-            return false;
-        if (p.isPreview())
-            return false;
+        return p.universe == universe && !(alrStarted && outOfOrder(p.sequenceNumber, lastSequence));
+    }
 
-        if (p.universe != universe)
-            return false;
+    inline bool shouldTerminate(const sacnData &p)
+    {
+        return p.isTerminated();
+    }
 
-        if (alrStarted && outOfOrder(p.sequenceNumber, lastSequence))
-            return false;
-
-        return true;
+    inline bool shouldNotDisplay(const sacnData &p)
+    {
+        return p.isPreview();
     }
 
     inline bool shouldServeFrames(timeoutPolicy tP, uint32_t nowMs, uint32_t lastPacketMs)

@@ -29,24 +29,30 @@ static void test_out_of_order()
     std::cout << "test_out_of_order good\n";
 }
 
-static void test_displayable_packet()
+static void test_relevant_packet()
 {
     sacnData p{};
     p.universe = 1;
     p.sequenceNumber = 10;
 
-    assert(displayablePacket(p, 1, 9, true));
-    assert(!displayablePacket(p, 2, 9, true));
+    assert(relevantPacket(p, 1, 9, true));
+    assert(!relevantPacket(p, 2, 9, true));
 
     // out of order only matters once started
-    assert(!displayablePacket(p, 1, 10, true));
-    assert(displayablePacket(p, 1, 10, false));
+    assert(!relevantPacket(p, 1, 10, true));
+    assert(relevantPacket(p, 1, 10, false));
+    std::cout << "test_relevant_packet good\n";
+}
 
+static void test_flags()
+{
+    sacnData p{};
+    assert(!shouldTerminate(p) && !shouldNotDisplay(p));
     p.options = constants::OPTIONS_STREAM_TERMINATED;
-    assert(!displayablePacket(p, 1, 9, true));
+    assert(shouldTerminate(p) && !shouldNotDisplay(p));
     p.options = constants::OPTIONS_PREVIEW_DATA;
-    assert(!displayablePacket(p, 1, 9, true));
-    std::cout << "test_displayable_packet good\n";
+    assert(!shouldTerminate(p) && shouldNotDisplay(p));
+    std::cout << "test_flags good\n";
 }
 
 static void test_should_serve_frames()
@@ -62,7 +68,8 @@ int main()
 {
     test_dataloss();
     test_out_of_order();
-    test_displayable_packet();
+    test_relevant_packet();
+    test_flags();
     test_should_serve_frames();
     std::cout << "all passed\n";
     return 0;

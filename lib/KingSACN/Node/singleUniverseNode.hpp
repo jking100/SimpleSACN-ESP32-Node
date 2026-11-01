@@ -18,6 +18,13 @@
 // seems liks a lot of concerns in this class
 // worrying about how to serve the data safely for two threads
 // maybe this could be some sort of thinner state machine that just coordinates between the sacn policy and its current stage plus some sort of storage mechanism
+//
+// 11/1: maybe the node can be split such that a node owns a sacnreceiver. a sacnreceiver is not threadaware, but it owns application of sacn policy and can give out dmxframes
+//      the sacn node ensures thread safety when operating the sacnreceiver, and is the public api for take these bytes and give me frames.
+//      i think this could break the current concerns of this class up, and allow for more direct testing/self documentation of the code
+//
+//
+
 class singleUniverseNode
 {
 public:
@@ -57,16 +64,17 @@ public:
     // return the last valid frame
     bool getLastFrame(DMXFrame *out, uint32_t timeNow);
 
+    // todo: data race, reads state without the lock, cant lock here as other locked functions call this
     state getState() const
     {
         return _status.nodeState;
     }
 
 private:
+    std::mutex guard{};
+
     nodeConfig _config{};
     nodeStatus _status{};
-
-    std::mutex guard{};
 };
 
 inline bool singleUniverseNode::processE131Packet(const uint8_t *buf, size_t len, uint32_t timeNow)
@@ -80,17 +88,22 @@ inline bool singleUniverseNode::processE131Packet(const uint8_t *buf, size_t len
     if (getState() == state::STREAMING && sacnPolicy::dataLoss(timeNow, _status.lastPacketTimeMs))
         _status.nodeState = state::LOST;
 
-    if (tmp.isTerminated())
+    // cid lock on to source of last good packet
+    if (getState() == state::STREAMING && memcmp(tmp.CID, _status.lastPacket.CID, sizeof(tmp.CID)) != 0)
+        return false;
+
+    if (!sacnPolicy::relevantPacket(tmp, _config.universe, _status.lastPacket.sequenceNumber, _status.nodeState == state::STREAMING))
+        return false;
+
+    // todo: in lost state should we only terminate from last cid(relates to hold frame behavior)
+    if (sacnPolicy::shouldTerminate(tmp))
     {
         _status.nodeState = state::WAITING;
         return false;
     }
 
-    // cid lock on to last good packet
-    if (getState() == state::STREAMING && memcmp(tmp.CID, _status.lastPacket.CID, sizeof(tmp.CID)) != 0)
-        return false;
-
-    if (!sacnPolicy::displayablePacket(tmp, _config.universe, _status.lastPacket.sequenceNumber, (getState() == state::STREAMING)))
+    // todo: fix this: we will go into data loss even if we are receiving preview frames
+    if (sacnPolicy::shouldNotDisplay(tmp))
         return false;
 
     _status.lastPacket = tmp;
@@ -123,8 +136,6 @@ inline bool singleUniverseNode::getLastFrame(DMXFrame *out, uint32_t timeNow)
 
     if (getState() == state::WAITING)
         return false;
-
-    // if we check last and its too old we can move into lost here
 
     if (sacnPolicy::dataLoss(timeNow, _status.lastPacketTimeMs))
         _status.nodeState = state::LOST;
