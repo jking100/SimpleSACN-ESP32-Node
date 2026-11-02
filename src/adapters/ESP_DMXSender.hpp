@@ -2,64 +2,51 @@
 
 // someweisguy/esp_dmx
 #include "esp_dmx.h"
-// esp dmx does not include this file itself(seems to assume what framework its on), transient include problem with the DMX_CONFIG_DEFUALT macro
+// esp_dmx's DMX_CONFIG_DEFAULT needs this but esp_dmx doesn't include it
 #include "esp_intr_alloc.h"
 
-#include "model/StampedDMXFrame.hpp"
-#include "interfaces/DMXSender.hpp"
+#include "E131/DMXFrame.hpp"
 
-class ESP_DMXSender : public DMXSender
+// sends DMX frames out a uart using someweisguy/esp_dmx
+class ESP_DMXSender
 {
 public:
-    /*
-    a DMXSender implementation powered by the someweisguy/esp_dmx library
-    @param txPin what pin to use for UART out
-    @param uartBus which UART peripheral to use
-    */
+    // @param txPin pin for uart tx
+    // @param uartBus which uart peripheral to use
     ESP_DMXSender(int txPin, int uartBus) : _txPin(txPin), _uartBus(uartBus) {}
 
-    void begin() override
+    // install the driver and set the pin; safe to call twice
+    void begin()
     {
-        // demo code someweisguy/esp_dmx
-        if (_hasBeenInit)
+        if (_initialized)
             return;
 
         dmx_config_t config = DMX_CONFIG_DEFAULT;
+        dmx_personality_t personalities[] = {{1, "Default Personality"}};
+        dmx_driver_install(_uartBus, &config, personalities, 1);
 
-        // ...declare the driver's DMX personalities...
-        const int personality_count = 1;
-        dmx_personality_t personalities[] = {
-            {1, "Default Personality"}};
+        dmx_set_pin(_uartBus, _txPin, DMX_PIN_NO_CHANGE /*rx*/, DMX_PIN_NO_CHANGE /*rts*/);
 
-        dmx_driver_install(_uartBus, &config, personalities, personality_count);
-
-        // target the pins and uart periph
-        dmx_set_pin(_uartBus, _txPin, DMX_PIN_NO_CHANGE /*rx_pin*/, DMX_PIN_NO_CHANGE /*rts_pin*/);
-
-        _hasBeenInit = true;
+        _initialized = true;
     }
 
-    bool send(StampedDMXFrame &dmxFrame) override
+    // blocks until the frame is on the wire
+    bool send(const DMXFrame &frame)
     {
-        if (!_hasBeenInit)
+        if (!_initialized)
             return false;
 
-        dmxFrame.UARTTxStartTime = millis();
-
-        dmx_write(_uartBus, &dmxFrame.frame.data, DMX_PACKET_SIZE);
+        // slot 0 is the start code, left at 0 by the driver; channels go in 1-512
+        dmx_write_offset(_uartBus, 1, frame.data, 512);
         dmx_send(_uartBus);
-
-        // Blocking
         dmx_wait_sent(_uartBus, DMX_TIMEOUT_TICK);
-
-        dmxFrame.UARTTxCompleteTime = millis();
 
         return true;
     }
 
 private:
-    int _txPin;   // where to write to
-    int _uartBus; // which uart to use
+    int _txPin;
+    int _uartBus;
 
-    bool _hasBeenInit{false};
+    bool _initialized{false};
 };

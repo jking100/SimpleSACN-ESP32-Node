@@ -2,14 +2,16 @@
 
 #include <FreeRTOS.h>
 
+// debug helpers: heartbeat led and periodic stack/heap report over serial
 namespace diag
 {
-    TaskHandle_t handlesArray[10];
-    size_t used{};
+    constexpr size_t maxWatched{10};
+    TaskHandle_t watched[maxWatched];
+    size_t watchedCount{};
 
     TaskHandle_t blink13{};
-    // sanity blink the onboard red led on pin 13
-    void aTaskBlink13(void *pvParameters)
+    // heartbeat on the onboard red led (pin 13)
+    void taskBlink13(void *)
     {
         for (;;)
         {
@@ -20,8 +22,8 @@ namespace diag
         }
     }
 
-    TaskHandle_t serialRTOSDiag{};
-    void aTaskSerialRTOSDiag(void *pvParameters)
+    TaskHandle_t serialReport{};
+    void taskSerialReport(void *)
     {
         auto printStackInfo = [](TaskHandle_t th)
         {
@@ -30,11 +32,9 @@ namespace diag
 
         for (;;)
         {
-            for (size_t i{}; i < used; i++)
-            {
-                printStackInfo(handlesArray[i]);
-            }
-            printStackInfo(serialRTOSDiag); // could use NULL to check this task instead of refrencing itself
+            for (size_t i{}; i < watchedCount; i++)
+                printStackInfo(watched[i]);
+            printStackInfo(serialReport);
             printStackInfo(blink13);
             Serial.printf("------------------------------\n");
             Serial.printf("         Free heap: %u bytes\n", esp_get_free_heap_size());
@@ -43,16 +43,13 @@ namespace diag
         }
     }
 
+    // start the diag tasks and report on the given tasks too (first 10)
     void begin(TaskHandle_t *handles, size_t len)
     {
-        xTaskCreate(aTaskBlink13, "Blink13", configMINIMAL_STACK_SIZE * 2, NULL, 1, &blink13);
-        xTaskCreate(aTaskSerialRTOSDiag, "SerialDiag", configMINIMAL_STACK_SIZE * 6, NULL, 2, &serialRTOSDiag);
+        xTaskCreate(taskBlink13, "Blink13", configMINIMAL_STACK_SIZE * 2, NULL, 1, &blink13);
+        xTaskCreate(taskSerialReport, "SerialDiag", configMINIMAL_STACK_SIZE * 6, NULL, 2, &serialReport);
 
-        for (int i{}; i < len && i < 10; i++)
-        {
-            handlesArray[i] = *(handles + i);
-            used++;
-        }
+        for (size_t i{}; i < len && i < maxWatched; i++)
+            watched[watchedCount++] = handles[i];
     }
-
 }

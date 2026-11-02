@@ -1,40 +1,30 @@
-// ----------------------------------------
-// others
+// third party
 #include <Arduino.h>
 #include <FreeRTOS.h>
 
-#include <esp_dmx.h>
-// ----------------------------------------
-// mine
+// config
 #include "secrets/secrets.hpp"
 
-// pure
-#include "model/StampedDMXFrame.hpp"
-#include "interfaces/DMXSender.hpp"
-#include "interfaces/SACNReceiver.hpp"
-#include "interfaces/Fakes/FakeSACNReceiver.hpp"
-#include "interfaces/FrameMailbox.hpp"
-#include "SACNPacket.hpp"
+// sacn logic (lib/KingSACN)
+#include "Node/safeNode.hpp"
 
-// device dependant
+// esp32 hardware
+#include "adapters/WiFiUDP_Poller.hpp"
 #include "adapters/ESP_DMXSender.hpp"
-#include "adapters/WiFiUDP_SACNReceiver.hpp" //powered by my handrolled sacn
-#include "adapters/FRTOSQueue_FrameMailbox.hpp"
 #include "diag.hpp"
-// ----------------------------------------
 
 constexpr int uartBus{1};
 constexpr int txPin{39};
 
-namespace config
-{
-    constexpr bool HOLD_ON_LOSS{true};
-    constexpr int UNIVERSE{1};
-}
+constexpr uint16_t universe{1};
+// E1.31 multicast group for a universe: 239.255.<hi>.<lo>
+const IPAddress multicastIP(239, 255, (universe >> 8) & 0xFF, universe & 0xFF);
+constexpr uint16_t sacnPort{5568};
 
+Node::safeNode node({universe, sacnPolicy::timeoutPolicy::HOLD});
+
+WiFiUDP_Poller udp{secrets::ssid, secrets::passphrase, multicastIP, sacnPort};
 ESP_DMXSender dmxOut{txPin, uartBus};
-WiFiUDP_SACNReceiver wifi_sacn_recv{config::UNIVERSE, secrets::ssid, secrets::passphrase};
-FRTOSQueue_FrameMailbox frameMailbox{};
 
 // 0 as argument results in 1hz
 constexpr uint16_t hzToMS(uint8_t hz)
@@ -42,31 +32,34 @@ constexpr uint16_t hzToMS(uint8_t hz)
     return hz ? 1000 / hz : 1000;
 }
 
-void aTaskPollNetwork(void *pvParameters)
+// drain the socket and hand the newest packet to the node
+void taskPollNetwork(void *)
 {
-    TickType_t xLastWakeTime{xTaskGetTickCount()};
+    uint8_t buf[638]; // largest E1.31 data packet
+
+    TickType_t lastWake{xTaskGetTickCount()};
     for (;;)
     {
-        StampedDMXFrame frame;
-        if (wifi_sacn_recv.poll(frame))
-            frameMailbox.publish(frame);
+        size_t n = udp.poll(buf, sizeof(buf));
+        if (n)
+            node.onPacket(buf, n, millis());
 
-        xTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(hzToMS(88)));
+        xTaskDelayUntil(&lastWake, pdMS_TO_TICKS(hzToMS(100)));
     }
 }
 
-void aTaskPushUART(void *pvParameters)
+// send the node's current frame out the uart, or nothing if it has none
+void taskSendDMX(void *)
 {
-    TickType_t xLastWakeTime{xTaskGetTickCount()};
+    DMXFrame frame;
+
+    TickType_t lastWake{xTaskGetTickCount()};
     for (;;)
     {
-        StampedDMXFrame frame;
-
-        // send frame if we have a frame, it is not data preview or terminated, it is not over 2500ms old without hold set
-        if (frameMailbox.latest(frame) && !(frame.previewData || frame.streamTerminated) && (config::HOLD_ON_LOSS || !SACNParser::dataLoss(frame.networkRxTime, millis())))
+        if (node.latestFrame(&frame, millis()))
             dmxOut.send(frame);
 
-        xTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(hzToMS(44)));
+        xTaskDelayUntil(&lastWake, pdMS_TO_TICKS(hzToMS(44)));
     }
 }
 
@@ -74,38 +67,33 @@ void setup()
 {
     Serial.begin(115200);
 
-    { // wait for serial conn for a bit, red light on
+    { // give serial 7.5s to connect before printing anything, red led on while waiting
         gpio_set_direction(GPIO_NUM_13, GPIO_MODE_OUTPUT);
         gpio_set_level(GPIO_NUM_13, 1);
 
-        while (!Serial && millis() < 7500) // give 7.5s to connect serial before writing anything
-        {
+        while (!Serial && millis() < 7500)
             vTaskDelay(10 / portTICK_PERIOD_MS);
-        }
+
         gpio_set_level(GPIO_NUM_13, 0);
     }
 
     Serial.printf("last reset reason: %d\n", esp_reset_reason());
-    if (esp_reset_reason() == esp_reset_reason_t::ESP_RST_PANIC)
-    {
-        Serial.print("I crashed :(");
-    }
+    if (esp_reset_reason() == ESP_RST_PANIC)
+        Serial.println("last reset was a crash");
 
-    {
-        wifi_sacn_recv.begin();
-        dmxOut.begin();
-        frameMailbox.begin();
-    }
+    udp.begin();
+    dmxOut.begin();
 
     TaskHandle_t pollNetwork{};
-    TaskHandle_t pushUART{};
+    TaskHandle_t sendDMX{};
 
-    // minstacksize freertos is 828, overhead is 60 bytes (this port of freertos uses bytes not words)
-    xTaskCreate(aTaskPollNetwork, "PollNetwork", configMINIMAL_STACK_SIZE * 7, NULL, 3, &pollNetwork);
-    xTaskCreate(aTaskPushUART, "PushUART", configMINIMAL_STACK_SIZE * 7, NULL, 4, &pushUART);
+    // configMINIMAL_STACK_SIZE is in bytes on this port, not words
+    xTaskCreate(taskPollNetwork, "PollNetwork", configMINIMAL_STACK_SIZE * 15, NULL, 3, &pollNetwork);
+    xTaskCreate(taskSendDMX, "SendDMX", configMINIMAL_STACK_SIZE * 15, NULL, 4, &sendDMX);
 
-    TaskHandle_t handles[2]{pollNetwork, pushUART};
+    TaskHandle_t handles[2]{pollNetwork, sendDMX};
     diag::begin(handles, 2);
 }
 
+// all work happens in the tasks above
 void loop() { vTaskDelete(NULL); }
