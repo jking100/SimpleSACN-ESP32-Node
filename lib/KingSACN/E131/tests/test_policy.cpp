@@ -13,6 +13,8 @@ static void test_dataloss()
     // millis wrap
     assert(!dataLoss(100, 0xFFFFFFFF - 100));
     assert(dataLoss(2500, 0xFFFFFFFF));
+    // now read just before rx was stamped
+    assert(!dataLoss(999, 1000));
     std::cout << "test_dataloss good\n";
 }
 

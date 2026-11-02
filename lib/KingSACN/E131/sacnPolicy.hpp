@@ -12,7 +12,8 @@ namespace sacnPolicy
     };
 
     // 2500ms or longer is defined as data loss by e131 6.7.1
-    constexpr bool dataLoss(uint32_t nowMs, uint32_t rxMs) { return nowMs - rxMs >= 2500; }
+    // signed diff: a now slightly before rx (clock read before the lock by another thread) is not loss
+    constexpr bool dataLoss(uint32_t nowMs, uint32_t rxMs) { return int32_t(nowMs - rxMs) >= 2500; }
 
     // reject the same packet or packets up to 19 behind, handle wrap
     inline bool outOfOrder(uint8_t seqNow, uint8_t seqPrior)
