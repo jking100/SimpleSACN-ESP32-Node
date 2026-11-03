@@ -74,30 +74,55 @@ static void test_dataloss_stop()
     std::cout << "test_dataloss_stop good\n";
 }
 
-// while streaming, other sources are ignored and the frame is kept
-static void test_cid_lock()
+// same priority: greater cid takes over, lesser cid ignored
+static void test_cid_arbitration()
 {
     sacnReceiver rx(u1_h);
-    rx.onSacnPacket(pkt(1, 0), 0);
-    assert(!rx.onSacnPacket(pkt(2, 1, 7), 100));
+    rx.onSacnPacket(pkt(2, 0), 0);
+    assert(!rx.onSacnPacket(pkt(1, 1, 7), 100));
 
     DMXFrame out;
     assert(rx.getCurrentFrame(&out, 100));
     assert(out.data[0] == 255);
-    std::cout << "test_cid_lock good\n";
+
+    assert(rx.onSacnPacket(pkt(3, 0, 9), 200));
+    assert(rx.getCurrentFrame(&out, 200));
+    assert(out.data[0] == 9);
+    std::cout << "test_cid_arbitration good\n";
 }
 
-// after loss, a new source takes over from any sequence number
+// higher priority takes over regardless of cid, lower is ignored
+static void test_priority()
+{
+    sacnReceiver rx(u1_h);
+    sacnData a = pkt(5, 0);
+    a.priority = 100;
+    rx.onSacnPacket(a, 0);
+
+    sacnData lo = pkt(9, 0, 7);
+    lo.priority = 99;
+    assert(!rx.onSacnPacket(lo, 100));
+
+    sacnData hi = pkt(1, 0, 8);
+    hi.priority = 101;
+    assert(rx.onSacnPacket(hi, 200));
+    DMXFrame out;
+    assert(rx.getCurrentFrame(&out, 200));
+    assert(out.data[0] == 8);
+    std::cout << "test_priority good\n";
+}
+
+// a lower cid source takes over once the old source is lost
 static void test_cid_takeover()
 {
     sacnReceiver rx(u1_h);
     rx.onSacnPacket(pkt(1, 0), 0);
 
     // loss is detected on input too, without a getCurrentFrame call
-    assert(!rx.onSacnPacket(pkt(2, 0, 7), 2499));
+    assert(!rx.onSacnPacket(pkt(0, 0, 7), 2499));
 
-    // same sequence number as the old source, would be out of order if not reset
-    assert(rx.onSacnPacket(pkt(2, 0, 7), 3000));
+    // loses arbitration until the old source is lost
+    assert(rx.onSacnPacket(pkt(0, 0, 7), 3000));
     assert(rx.getCurrentState() == state::STREAMING);
     DMXFrame out;
     assert(rx.getCurrentFrame(&out, 3000));
@@ -126,7 +151,7 @@ static void test_terminate()
     std::cout << "test_terminate good\n";
 }
 
-// terminate from another source while streaming is ignored
+// terminate from another source while streaming is ignored, even one that would win arbitration
 static void test_terminate_other_cid()
 {
     sacnReceiver rx(u1_h);
@@ -136,12 +161,18 @@ static void test_terminate_other_cid()
     std::cout << "test_terminate_other_cid good\n";
 }
 
-// preview data is not displayed
+// preview data is not displayed and never takes over a stream
 static void test_preview()
 {
     sacnReceiver rx(u1_h);
     assert(!rx.onSacnPacket(pkt(1, 0, 255, constants::OPTIONS_PREVIEW_DATA), 0));
     assert(rx.getCurrentState() == state::WAITING);
+
+    rx.onSacnPacket(pkt(1, 1), 100);
+    assert(!rx.onSacnPacket(pkt(2, 0, 7, constants::OPTIONS_PREVIEW_DATA), 200));
+    DMXFrame out;
+    assert(rx.getCurrentFrame(&out, 200));
+    assert(out.data[0] == 255);
     std::cout << "test_preview good\n";
 }
 
@@ -151,7 +182,8 @@ int main()
     test_frame_contents();
     test_state_transitions();
     test_dataloss_stop();
-    test_cid_lock();
+    test_cid_arbitration();
+    test_priority();
     test_cid_takeover();
     test_terminate();
     test_terminate_other_cid();

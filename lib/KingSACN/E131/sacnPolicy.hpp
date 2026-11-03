@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <cstring>
 
 #include "sacnData.hpp"
 
@@ -22,9 +23,23 @@ namespace sacnPolicy
         return (diff <= 0 && diff > -20);
     }
 
-    inline bool relevantPacket(const sacnData &p, uint16_t universe, uint8_t lastSequence, bool alrStarted)
+    inline bool sameSource(const sacnData &a, const sacnData &b) { return memcmp(a.CID, b.CID, sizeof(a.CID)) == 0; }
+
+    // relevant if right universe and, once started: same source in order, or a higher priority source,
+    // or same priority with a greater cid. cid tiebreak is deterministic, unlike first-come which depends on network jitter
+    inline bool relevantPacket(const sacnData &p, uint16_t universe, bool alrStarted, const sacnData &last)
     {
-        return p.universe == universe && !(alrStarted && outOfOrder(p.sequenceNumber, lastSequence));
+        if (p.universe != universe)
+            return false;
+        if (!alrStarted)
+            return true;
+
+        int cidCmp = memcmp(p.CID, last.CID, sizeof(p.CID));
+        if (cidCmp == 0)
+            return !outOfOrder(p.sequenceNumber, last.sequenceNumber); // sequence is per source
+        if (p.priority != last.priority)
+            return p.priority > last.priority;
+        return cidCmp > 0;
     }
 
     inline bool shouldTerminate(const sacnData &p)

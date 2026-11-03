@@ -63,23 +63,20 @@ namespace Core
     {
         update(timeNowMs);
 
-        // cid lock on to source of last good packet
-        if (checkState(rxState::STREAMING) && memcmp(p.CID, _snapshot.currentPacket.CID, sizeof(p.CID)) != 0)
-            return false;
-
-        if (!sacnPolicy::relevantPacket(p, _config.universe, _snapshot.currentPacket.sequenceNumber, checkState(rxState::STREAMING)))
-            return false;
-
-        // todo: in lost rxState should we only terminate from last cid(relates to hold frame behavior)
-        if (sacnPolicy::shouldTerminate(p))
-        {
-            _snapshot.state = rxState::WAITING;
-            return false;
-        }
-
-        // todo: fix this: we will go into data loss even if we are receiving preview frames
+        // preview is never live output, so it must not take over the stream
         if (sacnPolicy::shouldNotDisplay(p))
             return false;
+
+        if (!sacnPolicy::relevantPacket(p, _config.universe, checkState(rxState::STREAMING), _snapshot.currentPacket))
+            return false;
+
+        // only the current source can end its stream
+        if (sacnPolicy::shouldTerminate(p))
+        {
+            if (!checkState(rxState::WAITING) && sacnPolicy::sameSource(p, _snapshot.currentPacket))
+                _snapshot.state = rxState::WAITING;
+            return false;
+        }
 
         _snapshot.currentPacket = p;
         _snapshot.currentFrameRxTime = timeNowMs;

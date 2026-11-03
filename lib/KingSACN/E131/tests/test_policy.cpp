@@ -31,18 +31,37 @@ static void test_out_of_order()
     std::cout << "test_out_of_order good\n";
 }
 
-static void test_relevant_packet()
+static sacnData pk(uint8_t cid, uint8_t seq, uint8_t prio = 100)
 {
     sacnData p{};
     p.universe = 1;
-    p.sequenceNumber = 10;
+    p.CID[0] = cid;
+    p.sequenceNumber = seq;
+    p.priority = prio;
+    return p;
+}
 
-    assert(relevantPacket(p, 1, 9, true));
-    assert(!relevantPacket(p, 2, 9, true));
+static void test_relevant_packet()
+{
+    sacnData last = pk(1, 9);
+
+    assert(relevantPacket(pk(1, 10), 1, true, last));
+    assert(!relevantPacket(pk(1, 10), 2, true, last));
 
     // out of order only matters once started
-    assert(!relevantPacket(p, 1, 10, true));
-    assert(relevantPacket(p, 1, 10, false));
+    assert(!relevantPacket(pk(1, 9), 1, true, last));
+    assert(relevantPacket(pk(1, 9), 1, false, last));
+
+    // sequence is per source: another source's sequence is not compared
+    assert(relevantPacket(pk(2, 9, 101), 1, true, last));
+
+    // priority: higher wins, lower ignored
+    assert(relevantPacket(pk(0, 50, 101), 1, true, last));
+    assert(!relevantPacket(pk(2, 50, 99), 1, true, last));
+
+    // same priority: greater cid wins
+    assert(relevantPacket(pk(2, 50), 1, true, last));
+    assert(!relevantPacket(pk(0, 50), 1, true, last));
     std::cout << "test_relevant_packet good\n";
 }
 
