@@ -4,6 +4,8 @@
 
 // wifi details : see secrets/secrets.hpp.example
 #include "secrets/secrets.hpp"
+// set options in this file
+#include "config.hpp"
 
 // sacn logic (lib/KingSACN)
 #include "KingSACN/Node/safeNode.hpp"
@@ -13,20 +15,13 @@
 #include "adapters/ESP_DMXSender.hpp"
 #include "diag.hpp"
 
-constexpr bool PRINTDEBUG{true};
-
-constexpr int uartBus{1};
-constexpr int txPin{39};
-constexpr uint16_t universe{1};
 // E1.31 multicast group for a universe: 239.255.<hi>.<lo>
-const IPAddress multicastIP(239, 255, (universe >> 8) & 0xFF, universe & 0xFF);
-constexpr uint16_t sacnPort{5568};
+const IPAddress multicastIP(239, 255, (config::rx.universe >> 8) & 0xFF, config::rx.universe & 0xFF);
+WiFiUDP_Poller udp{secrets::ssid, secrets::passphrase, multicastIP, config::sacnPort};
 
-Node::safeNode node({universe, sacnPolicy::timeoutPolicy::HOLD});
-// Node::safeNode node({universe, sacnPolicy::timeoutPolicy::STOP});
+ESP_DMXSender dmxOut{config::txPin, config::uartBus};
 
-WiFiUDP_Poller udp{secrets::ssid, secrets::passphrase, multicastIP, sacnPort};
-ESP_DMXSender dmxOut{txPin, uartBus};
+Node::safeNode node(config::rx);
 
 // 0 as argument results in 1hz
 constexpr uint16_t hzToMS(uint8_t hz)
@@ -85,7 +80,7 @@ void setup()
     xTaskCreate(taskSendDMX, "SendDMX", configMINIMAL_STACK_SIZE * 10, NULL, 4, &sendDMX);
 
     // print stack/heap info for the above tasks to serial
-    if (PRINTDEBUG)
+    if (config::printDebug)
     {
         TaskHandle_t handles[2]{pollNetwork, sendDMX};
         diag::begin(handles, 2);
