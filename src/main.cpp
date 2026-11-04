@@ -6,7 +6,7 @@
 #include "secrets/secrets.hpp"
 
 // sacn logic (lib/KingSACN)
-#include "Node/safeNode.hpp"
+#include "KingSACN/Node/safeNode.hpp"
 
 // esp32 hardware
 #include "adapters/WiFiUDP_Poller.hpp"
@@ -87,8 +87,8 @@ void setup()
     // print stack/heap info for the above tasks to serial
     if (PRINTDEBUG)
     {
-    TaskHandle_t handles[2]{pollNetwork, sendDMX};
-    diag::begin(handles, 2);
+        TaskHandle_t handles[2]{pollNetwork, sendDMX};
+        diag::begin(handles, 2);
     }
 }
 

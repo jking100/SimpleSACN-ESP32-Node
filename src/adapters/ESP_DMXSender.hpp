@@ -5,7 +5,7 @@
 // esp_dmx's DMX_CONFIG_DEFAULT needs this but esp_dmx doesn't include it
 #include "esp_intr_alloc.h"
 
-#include "E131/DMXFrame.hpp"
+#include "KingSACN/E131/DMXFrame.hpp"
 
 // sends DMX frames out a uart using someweisguy/esp_dmx
 class ESP_DMXSender
