@@ -2,7 +2,7 @@
 #include <Arduino.h>
 #include <FreeRTOS.h>
 
-// config
+// wifi details : see secrets/secrets.hpp.example
 #include "secrets/secrets.hpp"
 
 // sacn logic (lib/KingSACN)
@@ -13,15 +13,17 @@
 #include "adapters/ESP_DMXSender.hpp"
 #include "diag.hpp"
 
+constexpr bool PRINTDEBUG{true};
+
 constexpr int uartBus{1};
 constexpr int txPin{39};
-
 constexpr uint16_t universe{1};
 // E1.31 multicast group for a universe: 239.255.<hi>.<lo>
 const IPAddress multicastIP(239, 255, (universe >> 8) & 0xFF, universe & 0xFF);
 constexpr uint16_t sacnPort{5568};
 
 Node::safeNode node({universe, sacnPolicy::timeoutPolicy::HOLD});
+// Node::safeNode node({universe, sacnPolicy::timeoutPolicy::STOP});
 
 WiFiUDP_Poller udp{secrets::ssid, secrets::passphrase, multicastIP, sacnPort};
 ESP_DMXSender dmxOut{txPin, uartBus};
@@ -59,7 +61,7 @@ void taskSendDMX(void *)
         if (node.latestFrame(&frame, millis()))
             dmxOut.send(frame);
 
-        xTaskDelayUntil(&lastWake, pdMS_TO_TICKS(hzToMS(44)));
+        xTaskDelayUntil(&lastWake, pdMS_TO_TICKS(hzToMS(44))); // send dmx at 44hz
     }
 }
 
@@ -67,32 +69,27 @@ void setup()
 {
     Serial.begin(115200);
 
-    { // give serial 7.5s to connect before printing anything, red led on while waiting
+    // initialize wifi and dmx, solid red light if failure
+    if (!udp.begin() || !dmxOut.begin())
+    {
+        Serial.printf("Error starting wifi or dmx\n");
         gpio_set_direction(GPIO_NUM_13, GPIO_MODE_OUTPUT);
         gpio_set_level(GPIO_NUM_13, 1);
-
-        while (!Serial && millis() < 7500)
-            vTaskDelay(10 / portTICK_PERIOD_MS);
-
-        gpio_set_level(GPIO_NUM_13, 0);
+        return;
     }
-
-    Serial.printf("last reset reason: %d\n", esp_reset_reason());
-    if (esp_reset_reason() == ESP_RST_PANIC)
-        Serial.println("last reset was a crash");
-
-    udp.begin();
-    dmxOut.begin();
 
     TaskHandle_t pollNetwork{};
     TaskHandle_t sendDMX{};
 
-    // configMINIMAL_STACK_SIZE is in bytes on this port, not words
-    xTaskCreate(taskPollNetwork, "PollNetwork", configMINIMAL_STACK_SIZE * 15, NULL, 3, &pollNetwork);
-    xTaskCreate(taskSendDMX, "SendDMX", configMINIMAL_STACK_SIZE * 15, NULL, 4, &sendDMX);
+    xTaskCreate(taskPollNetwork, "PollNetwork", configMINIMAL_STACK_SIZE * 10, NULL, 3, &pollNetwork);
+    xTaskCreate(taskSendDMX, "SendDMX", configMINIMAL_STACK_SIZE * 10, NULL, 4, &sendDMX);
 
+    // print stack/heap info for the above tasks to serial
+    if (PRINTDEBUG)
+    {
     TaskHandle_t handles[2]{pollNetwork, sendDMX};
     diag::begin(handles, 2);
+    }
 }
 
 // all work happens in the tasks above

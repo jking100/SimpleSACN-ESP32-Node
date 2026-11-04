@@ -13,6 +13,8 @@ namespace diag
     // heartbeat on the onboard red led (pin 13)
     void taskBlink13(void *)
     {
+        gpio_set_direction(GPIO_NUM_13, GPIO_MODE_OUTPUT);
+
         for (;;)
         {
             gpio_set_level(GPIO_NUM_13, 1);

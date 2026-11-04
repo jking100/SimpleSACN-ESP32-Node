@@ -16,18 +16,27 @@ public:
     ESP_DMXSender(int txPin, int uartBus) : _txPin(txPin), _uartBus(uartBus) {}
 
     // install the driver and set the pin; safe to call twice
-    void begin()
+    bool begin()
     {
         if (_initialized)
-            return;
+            return true;
 
         dmx_config_t config = DMX_CONFIG_DEFAULT;
         dmx_personality_t personalities[] = {{1, "Default Personality"}};
-        dmx_driver_install(_uartBus, &config, personalities, 1);
+        if (!dmx_driver_install(_uartBus, &config, personalities, 1))
+        {
+            Serial.printf("Failed to install dmx driver\n");
+            return false;
+        }
 
-        dmx_set_pin(_uartBus, _txPin, DMX_PIN_NO_CHANGE /*rx*/, DMX_PIN_NO_CHANGE /*rts*/);
+        if (!dmx_set_pin(_uartBus, _txPin, DMX_PIN_NO_CHANGE /*rx*/, DMX_PIN_NO_CHANGE /*rts*/))
+        {
+            Serial.printf("Failed to set dmx pins\n");
+            return false;
+        }
 
         _initialized = true;
+        return true;
     }
 
     // blocks until the frame is on the wire

@@ -35,7 +35,7 @@ public:
     }
 
     // drains every waiting packet, keeps the newest in out
-    // @return bytes in out, 0 if nothing was waiting
+    // @return bytes written to out, 0 if nothing was waiting
     size_t poll(uint8_t *out, size_t len)
     {
         size_t got{};
