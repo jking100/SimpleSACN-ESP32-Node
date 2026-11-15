@@ -1,4 +1,4 @@
-# Feather-dmx-node
+# SimpleSACN-ESP32-Node
 
 ESP32-S3 firmware that takes lighting data in over the network (sACN / E1.31) and blasts it
 back out as DMX512 to real fixtures. Basically a simple single universe sACN-to-DMX node.
