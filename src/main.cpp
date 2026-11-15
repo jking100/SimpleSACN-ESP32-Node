@@ -7,8 +7,8 @@
 // set options in this file
 #include "config.hpp"
 
-// sacn logic (lib/KingSACN)
-#include "KingSACN/Node/safeNode.hpp"
+// sacn logic (SimpleSACN, from lib_deps)
+#include <SimpleSACN.hpp>
 
 // esp32 hardware
 #include "adapters/WiFiUDP_Poller.hpp"
@@ -21,7 +21,7 @@ WiFiUDP_Poller udp{secrets::ssid, secrets::passphrase, multicastIP, config::sacn
 
 ESP_DMXSender dmxOut{config::txPin, config::uartBus};
 
-Node::safeNode node(config::rx);
+SimpleSACN::Node::SafeNode node(config::rx);
 
 // 0 as argument results in 1hz
 constexpr uint16_t hzToMS(uint8_t hz)
@@ -48,7 +48,7 @@ void taskPollNetwork(void *)
 // send the node's current frame out the uart, or nothing if it has none
 void taskSendDMX(void *)
 {
-    DMXFrame frame;
+    SimpleSACN::DmxFrame frame;
 
     TickType_t lastWake{xTaskGetTickCount()};
     for (;;)

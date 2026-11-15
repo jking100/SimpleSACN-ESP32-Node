@@ -1,7 +1,7 @@
 #pragma once
 
 #include <cstdint>
-#include "KingSACN/Node/safeNode.hpp"
+#include <SimpleSACN.hpp>
 
 namespace config
 {
@@ -11,6 +11,6 @@ namespace config
     constexpr int txPin{39}; // uart tx pin
     constexpr uint16_t sacnPort{5568};
 
-    constexpr Node::Config rx{1, Node::DataLossPolicy::HOLD};
-    // constexpr Node::Config rx{1, Node::DataLossPolicy::STOP};
+    constexpr SimpleSACN::Node::Config rx{1, SimpleSACN::Node::DataLossPolicy::HOLD};
+    // constexpr SimpleSACN::Node::Config rx{1, SimpleSACN::Node::DataLossPolicy::STOP};
 }

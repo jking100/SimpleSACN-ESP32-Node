@@ -5,7 +5,7 @@
 // esp_dmx's DMX_CONFIG_DEFAULT needs this but esp_dmx doesn't include it
 #include "esp_intr_alloc.h"
 
-#include "KingSACN/E131/DMXFrame.hpp"
+#include <SimpleSACN.hpp>
 
 // sends DMX frames out a uart using someweisguy/esp_dmx
 class ESP_DMXSender
@@ -40,7 +40,7 @@ public:
     }
 
     // blocks until the frame is on the wire
-    bool send(const DMXFrame &frame)
+    bool send(const SimpleSACN::DmxFrame &frame)
     {
         if (!_initialized)
             return false;
